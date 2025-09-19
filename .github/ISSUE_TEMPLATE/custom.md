@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 name: '이슈 생성'
-description: '새로 생성된 이슈는 Jira와 연동'
+description: '새로 생성된 이슈 연동'
 title: '이슈 이름을 작성해주세요'
 body:
   - type: input
@@ -16,7 +16,7 @@ body:
     attributes:
       label: '🎟️ 상위 작업 (Ticket Number)'
       description: '상위 작업의 Ticket Number를 기입해주세요'
-      placeholder: 'LCO-00'
+      placeholder: '0'
     validations:
       required: true
 
