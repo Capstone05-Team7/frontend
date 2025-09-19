@@ -1,39 +1,34 @@
 ---
-name: Custom issue template
-about: issue template create
-title: ''
-labels: ''
-assignees: ''
+name: "이슈 생성"
+about: "새로 생성된 이슈 연동"
+title: "새 이슈: {{issueLabel}}"
+labels: ""
+assignees: ""
 
----
-
-name: '이슈 생성'
-description: '새로 생성된 이슈 연동'
-title: '이슈 이름을 작성해주세요'
 body:
   - type: input
     id: parentKey
     attributes:
-      label: '🎟️ 상위 작업 (Ticket Number)'
-      description: '상위 작업의 Ticket Number를 기입해주세요'
-      placeholder: '0'
+      label: "🎟️ 상위 작업 (Ticket Number)"
+      description: "상위 작업의 Ticket Number를 기입해주세요"
+      placeholder: "0"
     validations:
       required: true
 
   - type: input
     id: description
     attributes:
-      label: '📋 참고사항(Description)'
-      description: '이슈를 간략히 설명'
+      label: "📋 참고사항(Description)"
+      description: "이슈를 간략히 설명"
+      placeholder: "간략히 작성해주세요"
     validations:
       required: true
 
-  - type: dropdown
+  - type: checkboxes
     id: issueLabel
     attributes:
-      label: '🏷️ label'
-      description: '이슈의 라벨을 선택'
-      multiple: true
+      label: "🏷️ Label"
+      description: "이슈의 라벨을 선택"
       options:
         - Feature
         - Fix
@@ -47,9 +42,9 @@ body:
   - type: textarea
     id: tasks
     attributes:
-      label: '📌 작업 내용(Tasks)'
-      description: '이슈에 대한 필요한 작업 목록을 작성'
-      value: |
+      label: "📌 작업 내용(Tasks)"
+      description: "이슈에 대한 필요한 작업 목록을 작성"
+      value: |-
         - [ ] blabla1
         - [ ] blabla2
         - [ ] blabla3
