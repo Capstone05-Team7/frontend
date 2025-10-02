@@ -5,12 +5,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import androidx.navigation.fragment.findNavController
-import com.example.capstone07.databinding.FragmentInputBinding
+import com.example.capstone07.databinding.FragmentAnalysisBinding
 
-class InputFragment : Fragment() {
+class AnalysisFragment : Fragment() {
 
-    private var _binding: FragmentInputBinding? = null
+    private var _binding: FragmentAnalysisBinding? = null
     private val binding get() = _binding!!
 
     override fun onCreateView(
@@ -18,23 +17,13 @@ class InputFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentInputBinding.inflate(inflater, container, false)
-
+        _binding = FragmentAnalysisBinding.inflate(inflater, container, false)
         return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // 확인 버튼 클릭 처리
-        binding.buttonCheck.setOnClickListener {
-            handleCheckButtonClick()
-        }
-    }
-
-    private fun handleCheckButtonClick() {
-        // 발표 시작 준비 화면으로 이동
-        findNavController().navigate(R.id.action_inputFragment_to_analysisFragment)
     }
 
     override fun onDestroyView() {

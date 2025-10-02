@@ -5,4 +5,8 @@
         android:id="@+id/inputFragment"
         android:title=""/>
 
+    <item
+        android:id="@+id/analysisFragment"
+        android:title=""/>
+
 </menu>
