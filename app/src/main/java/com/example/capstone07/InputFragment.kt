@@ -1,6 +1,7 @@
 package com.example.capstone07
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -33,8 +34,17 @@ class InputFragment : Fragment() {
     }
 
     private fun handleCheckButtonClick() {
+        // TODO: 스크립트 전송
+        val script = binding.editTextScriptInput.text.toString()
+        saveScript(script)
+
         // 발표 시작 준비 화면으로 이동
         findNavController().navigate(R.id.action_inputFragment_to_analysisFragment)
+    }
+
+    private fun saveScript(script: String){
+        // TODO: 스크립트 백엔드에 전송
+        Log.d("TEST", script)
     }
 
     override fun onDestroyView() {
