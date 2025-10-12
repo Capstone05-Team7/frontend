@@ -53,7 +53,8 @@ class InputFragment : Fragment() {
             return
         }
 
-        postScript(script)
+        //postScript(script)
+        findNavController().navigate(R.id.action_inputFragment_to_analysisFragment)
     }
 
     /**
