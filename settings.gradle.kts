@@ -16,6 +16,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }   // GitHub 기반 라이브러리를 가져오기 위해 JitPack 저장소 추가
     }
 }
 
