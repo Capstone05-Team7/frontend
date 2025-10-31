@@ -16,5 +16,36 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        initBottomNavigation()
+    }
+
+    private fun initBottomNavigation() {
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.main_container_frl, HomeFragment())
+            .commit()
+        binding.mainBtmBtm.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.btm_outline_home_xml -> {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.main_container_frl, HomeFragment())
+                        .commit()
+                    return@setOnItemSelectedListener true
+                }
+                R.id.btm_outline_analysis_xml -> {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.main_container_frl, HomeFragment())
+                        .commit()
+                    return@setOnItemSelectedListener true
+                }
+                R.id.btm_outline_script_xml -> {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.main_container_frl, HomeFragment())
+                        .commit()
+                    return@setOnItemSelectedListener true
+                }
+            }
+            false
+        }
     }
 }
