@@ -34,13 +34,13 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.btm_outline_analysis_xml -> {
                     supportFragmentManager.beginTransaction()
-                        .replace(R.id.main_container_frl, HomeFragment())
+                        .replace(R.id.main_container_frl, ScriptFragment())
                         .commit()
                     return@setOnItemSelectedListener true
                 }
                 R.id.btm_outline_script_xml -> {
                     supportFragmentManager.beginTransaction()
-                        .replace(R.id.main_container_frl, HomeFragment())
+                        .replace(R.id.main_container_frl, ScriptFragment())
                         .commit()
                     return@setOnItemSelectedListener true
                 }
