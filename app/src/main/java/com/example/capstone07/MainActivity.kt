@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.btm_outline_analysis_xml -> {
                     supportFragmentManager.beginTransaction()
-                        .replace(R.id.main_container_frl, ScriptFragment())
+                        .replace(R.id.main_container_frl, AnalysisTempFragment())
                         .commit()
                     return@setOnItemSelectedListener true
                 }
