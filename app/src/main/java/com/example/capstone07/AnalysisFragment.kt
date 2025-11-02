@@ -18,6 +18,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.example.capstone07.databinding.FragmentAnalysisBinding
+import com.example.capstone07.model.Speech
+import com.example.capstone07.model.SpeechResponse
+import com.example.capstone07.remote.SpeechService
+import retrofit2.Call
+import retrofit2.create
+import retrofit2.Callback
+import retrofit2.Response
 import java.util.Locale
 
 class AnalysisFragment : Fragment() {
@@ -39,6 +46,11 @@ class AnalysisFragment : Fragment() {
     private val silenceHandler = Handler(Looper.getMainLooper())
     private var silenceRunnable: Runnable? = null
     private val SILENCE_DELAY = 500L // 0.5초를 침묵으로 간주
+
+    // STT 결과를 누적할 변수
+    private val recognizedScriptBuffer = StringBuilder()
+
+    private val TAG = "AnalysisFragment"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,11 +159,11 @@ class AnalysisFragment : Fragment() {
     inner class STTListener : RecognitionListener {
 
         override fun onReadyForSpeech(params: Bundle) {
-            Log.d("STT", "말할 준비 완료")
+            Log.d(TAG, "말할 준비 완료")
         }
 
         override fun onBeginningOfSpeech() {
-            Log.d("STT", "음성 입력 시작")
+            Log.d(TAG, "음성 입력 시작")
 
             // 말이 다시 시작되면, 기존 침묵 감지 타이머 제거
             silenceRunnable?.let { silenceHandler.removeCallbacks(it) }
@@ -162,7 +174,7 @@ class AnalysisFragment : Fragment() {
         override fun onBufferReceived(buffer: ByteArray) { }
 
         override fun onEndOfSpeech() {
-            Log.d("STT", "음성 입력 종료")
+            Log.d(TAG, "음성 입력 종료")
         }
 
         override fun onError(error: Int) {
@@ -178,13 +190,13 @@ class AnalysisFragment : Fragment() {
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "입력 시간 초과"
                 else -> "기타 오류: $error"
             }
-            Log.d("STT", "오류 발생: $errorMessage")
+            Log.d(TAG, "오류 발생: $errorMessage")
 
             // 침묵 관련 오류가 발생했을 때만 타이머 시작
             if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                 silenceRunnable = Runnable {
-                    Log.d("STT_MANUAL_SILENCE", "1.5초 침묵 감지")
-                    sendSilenceSignalToBackend()
+                    Log.d(TAG, "1.5초 침묵 감지")
+                    sendSentenceToBackend()
                 }
                 silenceHandler.postDelayed(silenceRunnable!!, SILENCE_DELAY)
             }
@@ -201,11 +213,10 @@ class AnalysisFragment : Fragment() {
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (!matches.isNullOrEmpty()) {
                 val recognizedText = matches[0]
-                Log.d("STT_RESULT", "최종 인식된 텍스트: $recognizedText")
 
-                // 인식된 문장을 백엔드로 전송
-                sendSentenceToBackend(recognizedText)
-                //binding.textViewResult.append(recognizedText + "\n") // 결과를 화면에 누적해서 표시 (예시)
+                // 누적 버퍼에 텍스트 추가
+                recognizedScriptBuffer.append(recognizedText).append(" ")
+                Log.d(TAG, "누적된 스크립트: $recognizedScriptBuffer")
             }
 
             // 다음 인식 재시작
@@ -216,7 +227,7 @@ class AnalysisFragment : Fragment() {
             // 부분 결과를 수신하는 곳 (for 실시간 부분 전송)
             val matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (matches != null && matches.isNotEmpty()) {
-                Log.d("STT_PARTIAL", "부분 결과: ${matches[0]}")
+                Log.d(TAG, "부분 결과: ${matches[0]}")
             }
         }
 
@@ -233,18 +244,52 @@ class AnalysisFragment : Fragment() {
     }
 
     // 백엔드 통신 함수
-    private fun sendSentenceToBackend(text: String) {
-        // TODO:백엔드 API 호출
-        Log.d("STT_RESULT", "전송할 문장: $text")
-    }
+    private fun sendSentenceToBackend() {
+        // 누적된 텍스트가 없으면 전송하지 않음
+        if (recognizedScriptBuffer.isEmpty()) {
+            Log.d(TAG, "누적 텍스트 없음. 힌트 요청 건너뜀.")
+            return
+        }
 
-    private fun sendSilenceSignalToBackend() {
-        // TODO: 침묵 상태를 백엔드에 알리는 API 호출
-        Log.d("STT_RESULT", "침묵이 감지되었습니다")
+        val currentScript = recognizedScriptBuffer.toString().trim()
+        Log.d(TAG, "전송할 누적 텍스트: $currentScript")
+
+        // 이전 내용 숨기기(혼선 방지)
+
+        // api 호출
+        val service = NetworkModule.getClient().create<SpeechService>()
+
+        val requestBody = Speech(
+            projectNumber = 1,
+            input = currentScript
+        )
+
+        service.getNextHint(requestBody).enqueue(object : Callback<SpeechResponse> {
+            override fun onResponse(call: Call<SpeechResponse>, response: Response<SpeechResponse>) {
+
+                if (response.isSuccessful) {
+                    val hint = response.body()?.next
+                    if (!hint.isNullOrEmpty()) {
+                        // 서버가 반환한 다음 내용을 띄우기
+                        //Toast.makeText(requireContext(), "다음 힌트: $hint", Toast.LENGTH_LONG).show()
+                        binding.textViewResult.text = hint
+                    }
+                } else {
+                    Log.e(TAG, "힌트 요청 실패: ${response.code()}")
+                }
+            }
+
+            override fun onFailure(call: Call<SpeechResponse>, t: Throwable) {
+                Log.e(TAG, "네트워크 실패: ${t.message}")
+            }
+        })
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+
+        // 누적 버퍼 해제
+        recognizedScriptBuffer.clear()
 
         // 침묵 인식 타이머 콜백 제거
         silenceRunnable?.let { silenceHandler.removeCallbacks(it) }
