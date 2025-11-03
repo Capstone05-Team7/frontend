@@ -1,5 +1,6 @@
-package com.example.capstone07
+package com.example.capstone07.ui.speech
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -17,14 +18,15 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import com.example.capstone07.NetworkModule
 import com.example.capstone07.databinding.FragmentAnalysisBinding
 import com.example.capstone07.model.Speech
 import com.example.capstone07.model.SpeechResponse
 import com.example.capstone07.remote.SpeechService
 import retrofit2.Call
-import retrofit2.create
 import retrofit2.Callback
 import retrofit2.Response
+import retrofit2.create
 import java.util.Locale
 
 class AnalysisFragment : Fragment() {
@@ -120,14 +122,14 @@ class AnalysisFragment : Fragment() {
 
     // 마이크 권한 확인 및 STT 시작 로직
     private fun checkMicrophonePermissionAndStartSTT() {
-        if (ContextCompat.checkSelfPermission(requireContext(), android.Manifest.permission.RECORD_AUDIO)
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED) {
 
             // 권한이 이미 있으면 바로 STT 시작
             startSTTListening()
         } else {
             // 권한이 없으면 Launcher를 통해 권한 요청 실행
-            requestPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 

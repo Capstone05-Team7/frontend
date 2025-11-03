@@ -19,7 +19,7 @@
 
     <fragment
         android:id="@+id/analysisFragment"
-        android:name="com.example.capstone07.AnalysisFragment"
+        android:name="com.example.capstone07.ui.speech.AnalysisFragment"
         android:label="분석 중 화면"
         tools:layout="@layout/fragment_analysis" />
 
