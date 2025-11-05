@@ -99,6 +99,7 @@
     </LinearLayout>
 
     <FrameLayout
+        android:id="@+id/script_loading_fl"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_constraintTop_toTopOf="parent"

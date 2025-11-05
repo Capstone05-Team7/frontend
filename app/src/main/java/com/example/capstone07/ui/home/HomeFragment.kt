@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.capstone07.MainActivity
 import com.example.capstone07.NetworkModule
 import com.example.capstone07.R
 import com.example.capstone07.model.Project
@@ -18,6 +19,8 @@ import com.example.capstone07.model.ScriptResponseFragment
 import com.example.capstone07.remote.ProjectService
 import com.example.capstone07.remote.ScriptService
 import com.example.capstone07.ui.analysis.AnalysisAdapter
+import com.example.capstone07.ui.analysis.AnalysisTempFragment
+import com.example.capstone07.ui.script.ScriptFragment
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -38,7 +41,23 @@ class HomeFragment : Fragment() {
         val recyclerView = view.findViewById<RecyclerView>(R.id.home_scr_rcv)
         recyclerView.layoutManager = LinearLayoutManager(context)
 
-        val adapter = HomeAdpater()
+        val adapter = HomeAdpater(onProjectClick = { project ->
+            val fragment = if (project.isScriptSaved) {
+                AnalysisTempFragment().apply {
+                    arguments = Bundle().apply { putInt("projectId", project.id) }
+                }
+            } else {
+                ScriptFragment().apply {
+                    arguments = Bundle().apply { putInt("projectId", project.id) }
+                }
+            }
+
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.main_container_frl, fragment)
+                .addToBackStack(null)
+                .commit()
+
+        })
         recyclerView.adapter = adapter
 
         // Retrofit 서비스 가져오기

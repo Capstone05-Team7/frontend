@@ -42,7 +42,7 @@ class AnalysisAdapter(private var scripts: List<ScriptResponseFragment> = emptyL
         val keywordBtn = Button(holder.itemView.context).apply {
             text = script.keyword
             setTextColor(Color.parseColor("#205CFF"))
-            textSize = 18f
+            textSize = 15f
         }
         holder.gridKeywords.addView(keywordBtn)
 

@@ -16,10 +16,10 @@ import com.example.capstone07.model.ProjectResponseData
 import com.example.capstone07.model.ScriptResponseFragment
 import com.example.capstone07.ui.script.ScriptFragment
 
-class HomeAdpater(private var projects: List<ProjectResponseData> = emptyList()) :
-    RecyclerView.Adapter<HomeAdpater.MyViewHolder>() {
-
-    private val ITEM_COUNT = 10
+class HomeAdpater(
+    private var projects: List<ProjectResponseData> = emptyList(),
+    private val onProjectClick: (ProjectResponseData) -> Unit
+) : RecyclerView.Adapter<HomeAdpater.MyViewHolder>() {
 
     inner class MyViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val projectTitleTextView: TextView = itemView.findViewById(R.id.projectTitle)
@@ -41,7 +41,7 @@ class HomeAdpater(private var projects: List<ProjectResponseData> = emptyList())
 
         // CardView 클릭 이벤트
         holder.itemView.setOnClickListener {
-            // 여기다가 화면 전환 구현하면 되지 않을까..?
+            onProjectClick(project)
         }
     }
 

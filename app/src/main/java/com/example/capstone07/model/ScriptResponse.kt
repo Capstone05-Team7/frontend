@@ -18,3 +18,9 @@ data class ScriptResponseFragment(
     val sentenceFragmentContent: String,
     val keyword: String
 )
+
+data class ScriptRegisterResponse(
+    val isSuccess: Boolean,
+    val code: String,
+    val message: String
+)
