@@ -67,4 +67,16 @@ dependencies {
     // Retrofit
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.converter.gson)
+
+    // OkHttp
+    implementation(libs.okhttp)
+
+    // STOMP 클라이언트
+    implementation(libs.stomp.protocol.android)
+
+    // STOMP 라이브러리가 의존하는 RxJava 및 RxAndroid 추가
+    implementation(libs.rxjava2)
+    implementation(libs.rxandroid)
+
+
 }
