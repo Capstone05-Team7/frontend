@@ -3,6 +3,8 @@ package com.example.capstone07
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -15,9 +17,18 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import com.example.capstone07.NetworkModule
 import com.example.capstone07.databinding.FragmentAnalysisBinding
+import com.example.capstone07.model.Speech
+import com.example.capstone07.model.SpeechResponse
+import com.example.capstone07.remote.SpeechService
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
+import retrofit2.create
 import com.example.capstone07.remote.PresentationStompClient
 import java.util.Locale
+import java.util.jar.Manifest
 
 class AnalysisFragment : Fragment() {
 

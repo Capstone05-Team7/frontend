@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    tools:context=".ScriptFragment">
+    tools:context=".ui.script.ScriptFragment">
 
     <LinearLayout
         android:id="@+id/script_top_ll"
@@ -54,21 +54,19 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/script_top_ll"
-        android:layout_marginHorizontal="16dp"
-        />
+        android:layout_marginHorizontal="16dp">
 
-    <EditText
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:gravity="top|start"
-        app:layout_constraintBottom_toBottomOf="@id/script_frame_fl"
-        app:layout_constraintEnd_toEndOf="@id/script_frame_fl"
-        app:layout_constraintStart_toStartOf="@id/script_frame_fl"
-        app:layout_constraintTop_toTopOf="@id/script_frame_fl"
-        android:layout_marginHorizontal="10dp"
-        android:layout_marginVertical="10dp"
-        android:inputType="textMultiLine"/>
-    
+        <EditText
+            android:id="@+id/script_edit_et"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="top|start"
+            android:inputType="textMultiLine"
+            android:layout_margin="10dp"/>
+    </FrameLayout>
+
+
+
     <LinearLayout
         android:id="@+id/script_bottom_ll"
         android:layout_width="wrap_content"
@@ -79,23 +77,29 @@
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginTop="15dp"
         android:layout_marginBottom="25dp"
-        android:layout_marginHorizontal="16dp">
-        
-        <ImageView
+        android:layout_marginHorizontal="16dp"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/script_draft_btn"
             android:layout_width="170dp"
             android:layout_height="54dp"
             android:src="@drawable/script_draft_btn"
+            android:background="@null"
             android:layout_marginEnd="7dp"
-            />
+            android:contentDescription="임시 저장 버튼" />
 
-        <ImageView
+        <ImageButton
+            android:id="@+id/script_complete_btn"
             android:layout_width="203dp"
             android:layout_height="56dp"
             android:src="@drawable/script_complete_btn"
-            />
+            android:background="@null"
+            android:contentDescription="완료 버튼" />
     </LinearLayout>
 
     <FrameLayout
+        android:id="@+id/script_loading_fl"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_constraintTop_toTopOf="parent"

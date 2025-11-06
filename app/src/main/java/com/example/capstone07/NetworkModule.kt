@@ -1,7 +1,9 @@
 package com.example.capstone07
 
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 object NetworkModule {
 
@@ -18,9 +20,19 @@ object NetworkModule {
     private var retrofit: Retrofit? = null
 
     fun getClient(): Retrofit {
-        return retrofit ?: Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build().also { retrofit = it }
+        return retrofit ?: run {
+            val okHttpClient = OkHttpClient.Builder()
+                .connectTimeout(30, TimeUnit.SECONDS) // 연결 최대 30초
+                .readTimeout(30, TimeUnit.SECONDS)    // 읽기 최대 30초
+                .writeTimeout(30, TimeUnit.SECONDS)   // 쓰기 최대 30초
+                .build()
+
+            Retrofit.Builder()
+                .baseUrl(BASE_URL)
+                .client(okHttpClient)
+                .addConverterFactory(GsonConverterFactory.create())
+                .build()
+                .also { retrofit = it }
+        }
     }
 }

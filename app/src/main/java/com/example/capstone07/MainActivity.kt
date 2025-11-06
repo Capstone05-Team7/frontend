@@ -6,6 +6,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.example.capstone07.databinding.ActivityMainBinding
+import com.example.capstone07.ui.analysis.AnalysisTempFragment
+import com.example.capstone07.ui.home.HomeFragment
+import com.example.capstone07.ui.script.ScriptFragment
 
 
 class MainActivity : AppCompatActivity() {
