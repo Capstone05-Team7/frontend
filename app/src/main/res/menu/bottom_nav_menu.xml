@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu
-    xmlns:android="http://schemas.android.com/apk/res/android">
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
-        android:id="@+id/inputFragment"
-        android:title=""/>
+        android:id="@+id/btm_outline_home_xml"
+        android:enabled="true"
+        android:icon="@drawable/outline_home"
+        android:title="Home"/>
 
     <item
-        android:id="@+id/analysisFragment"
-        android:title=""/>
+        android:id="@+id/btm_outline_script_xml"
+        android:enabled="true"
+        android:icon="@drawable/outline_script"
+        android:title="Script" />
 
+    <item
+        android:id="@+id/btm_outline_analysis_xml"
+        android:enabled="true"
+        android:icon="@drawable/outline_analysis"
+        android:title="Analysis" />
 </menu>
