@@ -52,6 +52,29 @@ class AnalysisFragment : Fragment() {
 
     private val TAG = "AnalysisFragment"
 
+    // --- 힌트 타이머 로직 추가 ---
+    // 백엔드 PresentationService의 MAX_SILENCE_MS와 동일하거나 약간 길게 설정
+    private val HINT_TIMER_DELAY_MS = 0L
+
+    // UI 스레드에서 동작할 핸들러
+    private val hintHandler = Handler(Looper.getMainLooper())
+
+    // 타이머가 만료되면 실행될 Runnable
+    private val hintTimerRunnable = Runnable {
+        //Log.d(TAG, "2초간 침묵 감지. 서버에 힌트 요청.")
+        // TODO: PresentationStompClient에 "힌트 요청" 메서드 구현 필요
+        //       (stompClient.sendSttText() 와는 다른, 힌트를 요청하는 별도 메시지 전송)
+        if (::stompClient.isInitialized) {
+            //stompClient.requestHint() // (가정) 힌트 요청 메서드 호출
+        }
+    }
+    // --- 힌트 타이머 로직 끝 ---
+
+    private val recognizedSpeechBuffer = StringBuilder()
+    // 💡 추가: 버퍼 관리를 위한 상수
+    private val MAX_WORD_COUNT = 20 // 최대 허용 단어 수
+    private val TRIM_WORD_COUNT = 10 // 삭제할 단어 수 (MAX_WORD_COUNT의 절반)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -144,8 +167,14 @@ class AnalysisFragment : Fragment() {
         // 중단 버튼 활성화
         binding.imageViewStop.visibility = View.VISIBLE
 
+        recognizedSpeechBuffer.clear()
+
         Toast.makeText(requireContext(), "발표를 시작합니다.", Toast.LENGTH_SHORT).show()
         speechRecognizer.startListening(recognitionIntent)
+
+        // --- 힌트 타이머 로직 추가 ---
+        // 발표 시작과 동시에 첫 힌트 타이머 시작
+        startOrResetHintTimer()
     }
 
     private fun stopContinuousSTT() {
@@ -157,6 +186,10 @@ class AnalysisFragment : Fragment() {
             binding.imageViewStop.visibility = View.GONE
 
             Toast.makeText(requireContext(), "발표가 종료되었습니다.", Toast.LENGTH_SHORT).show()
+
+            // --- 힌트 타이머 로직 추가 ---
+            // 발표 중지 시 타이머 제거
+            cancelHintTimer()
         }
     }
 
@@ -205,8 +238,19 @@ class AnalysisFragment : Fragment() {
             if (!matches.isNullOrEmpty()) {
                 val recognizedText = matches[0]
 
+                recognizedSpeechBuffer.append(recognizedText).append(" ")
+
+                trimSpeechBufferIfNeeded()
+
+                val textToSend = recognizedSpeechBuffer.toString().trim()
+                if (textToSend.isNotEmpty()) {
+                    stompClient.sendSttText(textToSend)
+                    Log.d(TAG, "누적 버퍼 전송 완료 (길이: ${textToSend.length}): $textToSend")
+                }
+
                 // 최종 결과도 한 번 더 스트리밍하여 정확도 향상
-                stompClient.sendSttText(recognizedText)
+                //stompClient.sendSttText(recognizedText)
+                Log.d(TAG, "최종 결과 스트리밍: $recognizedText")
             }
 
             // 다음 인식 재시작
@@ -218,14 +262,102 @@ class AnalysisFragment : Fragment() {
             val matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (matches != null && matches.isNotEmpty()) {
                 val partialText = matches[0]
-                Log.d(TAG, "부분 결과 스트리밍: $partialText")
 
-                // 서버로 실시간 STT 텍스트 스트리밍
-                stompClient.sendSttText(partialText)
+                // --- 수정된 부분 시작 ---
+                if (isMeaningfulSpeech(partialText)) {
+                    // 1. 유의미한 텍스트일 때만 타이머 리셋
+                    startOrResetHintTimer()
+
+                    Log.d(TAG, "부분 결과 스트리밍: $partialText")
+
+                    // 2. 유의미한 텍스트일 때만 서버로 스트리밍
+                    if (partialText.length>15){
+                        stompClient.sendSttText(partialText)
+                    }
+
+
+                    /*recognizedSpeechBuffer.append(partialText).append(" ")
+
+                    trimSpeechBufferIfNeeded()
+
+                    val textToSend = recognizedSpeechBuffer.toString().trim()
+                    if (textToSend.isNotEmpty()) {
+                        stompClient.sendSttText(textToSend)
+                        Log.d(TAG, "누적 버퍼 전송 완료 (길이: ${textToSend.length}): $textToSend")
+                    }*/
+
+                } else {
+                    // 3. 잡음이나 무의미한 텍스트는 전송하지 않고,
+                    //    타이머 리셋도 하지 않아 계속 침묵 카운트가 진행되도록 함.
+                    Log.v(TAG, "잡음성 텍스트 무시: $partialText")
+                }
+
+//                // --- 힌트 타이머 로직 추가 ---
+//                // (STT 결과 수신) 타이머 리셋
+//                startOrResetHintTimer()
+//
+//                Log.d(TAG, "부분 결과 스트리밍: $partialText")
+//
+//                // 서버로 실시간 STT 텍스트 스트리밍
+//                stompClient.sendSttText(partialText)
+//
+//                // --- 힌트 타이머 로직 추가 ---
+//                // (STT 결과 수신) 타이머 리셋
+//                startOrResetHintTimer()
             }
         }
 
         override fun onEvent(eventType: Int, params: Bundle) {}
+    }
+
+    /**
+     * STT 결과가 잡음이나 짧은 감탄사가 아닌 유의미한 발화인지 판단합니다.
+     * 이 함수가 false를 반환하면 침묵 타이머가 리셋되지 않습니다.
+     * @param text STT 엔진으로부터 수신된 텍스트
+     * @return 유의미하면 true, 잡음성 텍스트면 false
+     */
+    private fun isMeaningfulSpeech(text: String): Boolean {
+        // 1. 전처리: 구두점과 공백을 제거하여 실제 내용물만 비교할 수 있도록 정규화
+        // 구두점과 공백을 제거해도 텍스트가 남아있는지 확인
+        val normalizedText = text.replace(Regex("[\\s.,?!:;\"'\\-_]"), "").trim()
+
+//        // 2. 최소 길이 검사 (정규화된 텍스트 기준)
+//        // 2글자 미만은 대부분 잡음 (예: "아", "음")
+//        if (normalizedText.length < 2) {
+//            Log.v(TAG, "FILTERED: 짧은 길이 ($normalizedText)")
+//            return false
+//        }
+
+        // 3. 반복되는 문자열 검사 (정규화된 텍스트 기준)
+        // "ㅋㅋㅋ", "아아아", "......" 등 의미 없는 반복
+        if (normalizedText.all { it == normalizedText.first() } && normalizedText.length > 1) {
+            Log.v(TAG, "FILTERED: 반복 문자열 ($normalizedText)")
+            return false
+        }
+
+        // 4. 잡음/감탄사 패턴 검사
+        // '아', '에', '이', '오', '우', '음', '흠', '흐' 등으로만 이루어진 패턴 (한 글자 초과)
+        val noisePattern = Regex("^[아에이오우음흠흐]+$")
+        if (normalizedText.matches(noisePattern)) {
+            Log.v(TAG, "FILTERED: 감탄사 패턴 ($normalizedText)")
+            return false
+        }
+
+        // 5. 일반적인 잡음 키워드 포함 검사
+        val commonNoiseKeywords = listOf("콜록", "에헴", "음", "흐음", "어", "아", "음...", "음...")
+        for (keyword in commonNoiseKeywords) {
+            if (normalizedText.contains(keyword)) {
+                // "음"이 포함된 텍스트라도 길이가 길면 유의미할 수 있으므로,
+                // 길이가 짧거나 (예: 4글자 미만) 해당 키워드와 매우 유사할 경우에만 필터링
+                if (normalizedText.length < 4 || normalizedText == keyword.replace("...", "")) {
+                    Log.v(TAG, "FILTERED: 일반 잡음 키워드 포함 ($normalizedText)")
+                    return false
+                }
+            }
+        }
+
+        // 위 필터를 모두 통과하면 유의미한 발화로 간주하여 타이머 리셋
+        return true
     }
 
     // 인식 재시작
@@ -236,12 +368,27 @@ class AnalysisFragment : Fragment() {
             speechRecognizer.startListening(recognitionIntent)
         }
     }
+    /**
+     * 힌트 타이머를 취소하고 2초 뒤에 새로 시작합니다.
+     * (STT 결과가 수신될 때마다 호출됩니다)
+     */
+    private fun startOrResetHintTimer() {
+        // 기존에 예약된 타이머(Runnable)가 있다면 취소
+        hintHandler.removeCallbacks(hintTimerRunnable)
+        // 2초(HINT_TIMER_DELAY_MS) 뒤에 힌트 요청 Runnable 실행
+        hintHandler.postDelayed(hintTimerRunnable, HINT_TIMER_DELAY_MS)
+    }
+
+    private fun cancelHintTimer() {
+        hintHandler.removeCallbacks(hintTimerRunnable)
+    }
 
     // 웹소켓으로 힌트 메시지를 수신했을 때 실행될 콜백 함수
     private fun onHintReceived(hint: String) {
         Log.d(TAG, "서버에서 힌트 수신: $hint")
         if (isAdded) {
             // 힌트를 UI에 표시
+            binding.textViewResult.text = ""
             binding.textViewResult.text = hint
         }
     }
@@ -259,6 +406,26 @@ class AnalysisFragment : Fragment() {
             speechRecognizer.destroy()
         }
 
+        // --- 힌트 타이머 로직 추가 ---
+        // 화면 종료 시 핸들러 콜백 제거 (메모리 누수 방지)
+        cancelHintTimer()
+
         _binding = null
+    }
+
+    private fun trimSpeechBufferIfNeeded() {
+        // 버퍼를 공백을 기준으로 단어 리스트로 분리
+        val words = recognizedSpeechBuffer.toString().trim().split("\\s+".toRegex())
+
+        if (words.size > MAX_WORD_COUNT) {
+            Log.d(TAG, "버퍼 단어 수 초과 (${words.size}개). 앞부분 ${TRIM_WORD_COUNT}개 삭제.")
+
+            // 최신 내용 (words.size - TRIM_WORD_COUNT)개만 유지
+            val newWords = words.subList(TRIM_WORD_COUNT, words.size)
+
+            // 버퍼를 새로운 단어 리스트로 재구성
+            recognizedSpeechBuffer.clear()
+            recognizedSpeechBuffer.append(newWords.joinToString(" "))
+        }
     }
 }

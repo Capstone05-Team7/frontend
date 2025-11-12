@@ -16,6 +16,7 @@ import ua.naiksoftware.stomp.dto.StompCommand
 
 // 서버 주소 및 포트가 실제와 다를 수 있으므로 확인 필요
 private const val WS_ENDPOINT = "ws://10.0.2.2:8080/ws/presentation/websocket"
+//private const val WS_ENDPOINT = "ws://3.34.163.79:8080/ws/presentation/websocket"
 private const val TAG = "StompClient"
 
 class PresentationStompClient(
@@ -92,10 +93,10 @@ class PresentationStompClient(
     }
 
     /**
-     * 힌트 수신 채널 구독 (/sub/hint/{presentationId})
+     * 힌트 수신 채널 구독 (/sub/current/{presentationId})
      */
     private fun subscribeForHints() {
-        val destination = "/sub/hint/$presentationId"
+        val destination = "/sub/current/$presentationId"
 
         compositeDisposable.add(stompClient.topic(destination)
             .subscribeOn(Schedulers.io())
@@ -140,6 +141,32 @@ class PresentationStompClient(
                     Log.d(TAG, "STT 메시지 전송 완료")
                 }, { error ->
                     Log.e(TAG, "/pub/stt 전송 실패", error)
+                })
+        )
+    }
+
+    fun requestHint(){
+        if (!isConnected) {
+            Log.w(TAG, "웹소켓이 연결되지 않아 힌트 요청 전송 실패")
+            return
+        }
+
+        // STOMP SEND 프레임 헤더 구성 (destination + custom header)
+        val headers = mutableListOf(
+            StompHeader(StompHeader.DESTINATION, "/pub/hint/request"),
+            StompHeader("presentationId", presentationId)
+        )
+        // 힌트 요청은 별도 페이로드가 필요 없음 (빈 JSON 전송)
+        val payload = "{}"
+
+        // Rx Completable 반환을 구독하여 전송 수행
+        compositeDisposable.add(
+            stompClient
+                .send(StompMessage(StompCommand.SEND, headers, payload))
+                .subscribe({
+                    Log.d(TAG, "힌트 요청 메시지 전송 완료")
+                }, { error ->
+                    Log.e(TAG, "/pub/hint/request 전송 실패", error)
                 })
         )
     }
