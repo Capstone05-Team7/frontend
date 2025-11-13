@@ -9,6 +9,36 @@
         android:padding="32dp"
         tools:context=".ui.speech.AnalysisFragment">
 
+        <!--   현재 문장 표시할 숨겨진 뷰     -->
+        <TextView
+            android:id="@+id/textView_nowspeaking"
+            android:layout_width="wrap_content"
+            android:layout_height="0dp"
+            android:layout_marginTop="32dp"
+            android:gravity="top|start"
+            android:text=""
+            android:textSize="20sp"
+            android:visibility="visible"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintBottom_toTopOf="@id/textView_progress"
+            android:layout_marginBottom="30dp"/>
+
+        <!--   진행률 표시할 숨겨진 뷰     -->
+        <TextView
+            android:id="@+id/textView_progress"
+            android:layout_width="wrap_content"
+            android:layout_height="0dp"
+            android:layout_marginTop="32dp"
+            android:gravity="top|start"
+            android:text=""
+            android:textSize="40sp"
+            android:visibility="visible"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintBottom_toTopOf="@id/imageView_mic"
+            android:layout_marginBottom="50dp"/>
+
         <ImageView
             android:id="@+id/imageView_mic"
             android:layout_width="120dp"
