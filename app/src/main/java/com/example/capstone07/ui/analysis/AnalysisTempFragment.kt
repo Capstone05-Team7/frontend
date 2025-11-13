@@ -9,12 +9,12 @@ import android.widget.ImageButton
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.capstone07.AnalysisFragment
 import com.example.capstone07.NetworkModule
 import com.example.capstone07.R
 import com.example.capstone07.model.ScriptResponse
 import com.example.capstone07.model.ScriptResponseFragment
 import com.example.capstone07.remote.ScriptService
-import com.example.capstone07.ui.speech.AnalysisFragment
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
