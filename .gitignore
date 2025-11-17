@@ -15,3 +15,6 @@
 local.properties
 
 .kotlin/errors/errors-*.log
+
+# Google Cloud Service Account Key
+/app/src/main/res/raw/credential.json

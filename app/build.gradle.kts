@@ -78,5 +78,9 @@ dependencies {
     implementation(libs.rxjava2)
     implementation(libs.rxandroid)
 
+    // Google Cloud STT
+    implementation(libs.google.cloud.speech)
+    implementation(libs.grpc.okhttp)
+
 
 }
