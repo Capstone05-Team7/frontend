@@ -15,7 +15,7 @@ object NetworkModule {
     //private const val BASE_URL = "http://127.0.0.1:8080" // "http://<PC의_실제_IP>:8080/"
 
     // ec2 서버
-    //private const val BASE_URL = "http://13.209.4.95:8080"
+    //private const val BASE_URL = "http://3.34.163.79:8080"
 
     private var retrofit: Retrofit? = null
 

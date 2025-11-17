@@ -9,7 +9,7 @@ import android.widget.ImageButton
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.capstone07.AnalysisFragment
+import com.example.capstone07.ui.speech.AnalysisFragment
 import com.example.capstone07.NetworkModule
 import com.example.capstone07.R
 import com.example.capstone07.model.ScriptResponse
