@@ -16,7 +16,7 @@ data class ScriptResponseFragment(
     val sentenceId: Int,
     val sentenceOrder: Int,
     val sentenceFragmentContent: String,
-    val keyword: String
+    var keyword: String
 )
 
 data class ScriptRegisterResponse(
