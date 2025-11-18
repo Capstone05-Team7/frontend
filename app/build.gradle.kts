@@ -39,6 +39,13 @@ android {
         viewBinding = true
         dataBinding = true
     }
+
+    packaging {
+        // 중복되는 'META-INF/DEPENDENCIES' 파일 발견 시,
+        // 빌드 시스템이 발견한 첫 번째 파일을 선택하고 나머지는 무시
+        pickFirst("META-INF/DEPENDENCIES")
+        exclude("META-INF/INDEX.LIST")
+    }
 }
 
 dependencies {
