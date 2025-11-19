@@ -459,6 +459,7 @@ package com.example.capstone07.ui.speech
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -528,6 +529,32 @@ class AnalysisFragment : Fragment() {
     private var speakingSentence: String = ""
     private var speakingId: String = ""
 
+    // ============================================================================
+    // [추가 시작] 1. 하이브리드 로직을 위한 변수와 스크립트 데이터
+    // ============================================================================
+
+    // 현재 메인 화면에 표시 중인 문장 ID 기억용
+    private var currentDisplayId: String = ""
+
+    // 스크립트 데이터 클래스 (durationSec: 힌트가 뜨기까지 걸리는 시간)
+    data class ScriptItem(val id: String, val text: String, val durationSec: Long)
+
+    private val scriptList = listOf(
+        ScriptItem("1-1", "안녕하십니까? 오늘 여러분과 함께 한국 프로야구의 심장, KIA 타이거즈에 대해 이야기 나누고자 합니다.", 10L),
+        ScriptItem("1-2", "타이거즈는 단순한 야구팀을 넘어선, 한국 스포츠 역사와 호남 지역민의 자부심 그 자체입니다.", 8L),
+        ScriptItem("1-3", "저희 발표는 역사부터 현재, 그리고 미래 비전까지 폭넓게 다룰 것입니다.", 7L),
+        ScriptItem("1-4", "타이거즈의 역사는 1982년 프로야구 리그 출범과 함께 창단된 해태 타이거즈에서 시작됩니다.", 10L),
+        ScriptItem("1-5", "해태는 곧 KIA 타이거즈의 뿌리이자, 불멸의 'V11' 신화를 일군 주역입니다.", 9L)
+    )
+
+    // 타이머 핸들러
+    private val scriptTimerHandler = Handler(Looper.getMainLooper())
+
+    // 시간이 다 되었을 때 실행할 작업: "다음 문장 힌트 보여주기"
+    private val scriptTimerRunnable = Runnable {
+        showNextSentenceHint()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -581,6 +608,12 @@ class AnalysisFragment : Fragment() {
             stopContinuousSTT()
             stompClient.disconnect() // 웹소켓 연결 해제
         }
+
+        // ============================================================================
+        // [추가 시작] 초기 화면 텍스트 세팅
+        // ============================================================================
+        binding.textViewNowspeaking.text = "마이크를 켜면 발표 도우미가 시작됩니다."
+        binding.textViewResult.text = ""
     }
 
     // STT 설정 함수
@@ -645,6 +678,11 @@ class AnalysisFragment : Fragment() {
             // --- 힌트 타이머 로직 추가 ---
             // 발표 중지 시 타이머 제거
             cancelHintTimer()
+
+            // ============================================================================
+            // [추가 시작] 발표 끝나면 하이브리드 타이머도 꺼야 함
+            // ============================================================================
+            stopScriptTimer()
         }
     }
 
@@ -841,18 +879,77 @@ class AnalysisFragment : Fragment() {
         hintHandler.removeCallbacks(hintTimerRunnable)
     }
 
+    // ============================================================================
+    // [추가 시작] 2. 하이브리드 타이머 제어 로직 (새로 만드는 함수들)
+    // ============================================================================
+
+    // 타이머 시작 함수
+    private fun startScriptTimer(scriptId: String) {
+        // 1. 기존 타이머 취소
+        stopScriptTimer()
+
+        // 2. ID로 시간 정보 찾기
+        val item = scriptList.find { it.id == "1-1" }
+
+        if (item != null) {
+            val delayMs = item.durationSec * 1000L
+            // 3. 타이머 예약
+            scriptTimerHandler.postDelayed(scriptTimerRunnable, delayMs)
+            Log.d(TAG, "타이머 시작: $scriptId (${item.durationSec}초)")
+        }
+    }
+
+    // 타이머 중지 함수
+    private fun stopScriptTimer() {
+        scriptTimerHandler.removeCallbacks(scriptTimerRunnable)
+    }
+
+    // 시간이 다 됐을 때 다음 문장을 힌트로 보여주는 함수
+    private fun showNextSentenceHint() {
+        val currentIndex = scriptList.indexOfFirst { it.id == currentDisplayId }
+
+        // 다음 문장이 있으면
+        if (currentIndex != -1 && currentIndex < scriptList.size - 1) {
+            val nextItem = scriptList[currentIndex + 1]
+
+            // 힌트 텍스트뷰(textViewResult)에 회색으로 표시
+            binding.textViewResult.text = "[다음 내용 힌트]\n${nextItem.text}"
+            binding.textViewResult.setTextColor(Color.GRAY)
+
+            Log.d(TAG, "시간 초과! 힌트 표시: ${nextItem.id}")
+        }
+    }
+
     // 웹소켓으로 힌트 메시지를 수신했을 때 실행될 콜백 함수
     private fun onHintReceived(response: SimilarityResponse) {
-        Log.d(TAG, "서버에서 힌트 수신: ${response.mostSimilarId}")
-        if (isAdded) {
-            // 힌트를 UI에 표시
-            binding.textViewResult.text = ""
-            binding.textViewResult.text = response.mostSimilarText
+        if (!isAdded) return
 
-            speakingSentence = response.mostSimilarText
-            speakingId = response.mostSimilarId
-            binding.textViewNowspeaking.text = "현재 발화 중인 문장: \n ${speakingSentence}"
+        activity?.runOnUiThread {
+            // ============================================================================
+            // [추가 시작] AI 응답과 타이머 연동 로직
+            // ============================================================================
+            val detectedId = response.mostSimilarId
+            val detectedText = response.mostSimilarText
 
+            // AI가 "새로운 문장"을 감지했으면 (현재 보고있는 것과 다를 때)
+            if (detectedId != currentDisplayId) {
+                Log.d(TAG, "화면 전환: $currentDisplayId -> $detectedId")
+
+                // 1. ID 갱신
+                currentDisplayId = detectedId
+                speakingId = detectedId
+                speakingSentence = detectedText
+
+                // 2. 메인 화면 업데이트 (검은색)
+                binding.textViewNowspeaking.text = "[${detectedId}]\n$detectedText"
+                binding.textViewNowspeaking.setTextColor(Color.BLACK)
+
+                // 3. 힌트 창은 지움 (새 문장 시작했으니)
+                binding.textViewResult.text = ""
+
+                // 4. 새 문장에 맞는 타이머 시작
+                startScriptTimer(detectedId)
+            }
         }
     }
 
@@ -882,6 +979,10 @@ class AnalysisFragment : Fragment() {
         // --- 힌트 타이머 로직 추가 ---
         // 화면 종료 시 핸들러 콜백 제거 (메모리 누수 방지)
         cancelHintTimer()
+        // ============================================================================
+        // [추가 시작] 타이머 해제
+        // ============================================================================
+        stopScriptTimer()
 
         _binding = null
     }
