@@ -33,8 +33,13 @@ import com.google.cloud.speech.v1.SpeechSettings
 import com.google.cloud.speech.v1.StreamingRecognitionConfig
 import com.google.cloud.speech.v1.StreamingRecognizeRequest
 import com.google.cloud.speech.v1.StreamingRecognizeResponse
+import java.util.concurrent.LinkedBlockingQueue
 
 class AnalysisFragment : Fragment() {
+
+    /**
+     * 변수 및 상수
+     */
 
     private var _binding: FragmentAnalysisBinding? = null
     private val binding get() = _binding!!
@@ -66,25 +71,64 @@ class AnalysisFragment : Fragment() {
     // UI 스레드에서 동작할 핸들러
     private val hintHandler = Handler(Looper.getMainLooper())
 
-    // 타이머가 만료되면 실행될 Runnable
-    private val hintTimerRunnable = Runnable {
-        //Log.d(TAG, "2초간 침묵 감지. 서버에 힌트 요청.")
-        // TODO: PresentationStompClient에 "힌트 요청" 메서드 구현 필요
-        //       (stompClient.sendSttText() 와는 다른, 힌트를 요청하는 별도 메시지 전송)
-        if (::stompClient.isInitialized) {
-            //stompClient.requestHint() // (가정) 힌트 요청 메서드 호출
-        }
-    }
-    // --- 힌트 타이머 로직 끝 ---
-
     private val recognizedSpeechBuffer = StringBuilder()
-    // 💡 추가: 버퍼 관리를 위한 상수
+
+    // ---버퍼 관리를 위한 상수---
     private val MAX_WORD_COUNT = 20 // 최대 허용 단어 수
     private val TRIM_WORD_COUNT = 10 // 삭제할 단어 수 (MAX_WORD_COUNT의 절반)
 
-    private var speakingSentence: String = ""
-    private var speakingId: String = ""
+    // --- 현재 상태 저장용 ---
+    private var speakingSentence: String = ""   // 현재 말하고 있는 문장
+    private var speakingId: String = ""     // 발화 중인 문장 id
 
+    // --- '2-스레드 아키텍처'를 위한 변수 ---
+    private val audioBuffer = LinkedBlockingQueue<ByteArray>()  // [스레드 A]가 녹음한 오디오 청크를 담아두는 '공용 바구니'
+    private var audioRecordingThread: Thread? = null    // [스레드 A] AudioRecord에서 마이크 입력을 읽어 audioBuffer에 넣는 역할
+    private var sttTransmissionThread: Thread? = null   // [스레드 B] audioBuffer에서 오디오를 꺼내 Google STT 서버로 전송하는 역할
+
+    // --- 감시자 도입 ---
+    private var lastSttResponseTime = 0L    // 마지막으로 서버 응답(onNext)을 받은 시간
+    private val watchdogHandler = Handler(Looper.getMainLooper())   // 3.5초 동안 응답 없으면 재시작시키는 감시자
+    private val watchdogRunnable = object : Runnable {
+        override fun run() {
+            if (isListening) {
+                val currentTime = System.currentTimeMillis()
+                // (주시작 직후 3초간은 무시 (연결 초기화 시간 고려)
+                if (currentTime - lastSttResponseTime > 3000) {
+                    /*Log.w(TAG, "[감시자] 3초간 응답 없음. 전송 스레드 재시작")
+
+                    // 전송 스레드만 리셋 (녹음은 계속됨 -> 끊김 없음)
+                    startSttTransmission()
+
+                    // 시간 갱신
+                    lastSttResponseTime = System.currentTimeMillis()*/
+
+                    // ⭐️ [핵심 수정] 큐에 데이터가 쌓여있는데도(>0) 응답이 없으면 진짜 문제!
+                    // 큐가 비어있다면(=사용자가 말을 안 해서 보낼 게 없으면) 응답 없는 건 당연함.
+                    if (audioBuffer.isNotEmpty()) {
+                        Log.w(TAG, "[감시자] 큐에 데이터가 ${audioBuffer.size}개나 있는데 응답 없음. 재시작")
+                        startSttTransmission()
+                        lastSttResponseTime = System.currentTimeMillis()
+                    } else {
+                        // 큐가 비어있으면 그냥 시간만 갱신해서 살려둠 (False Alarm 방지)
+                        // Log.v(TAG, "[감시자] 응답 없지만 큐도 비어있음(침묵 중). 패스.")
+                        lastSttResponseTime = System.currentTimeMillis()
+                    }
+                }
+                // 1초마다 감시
+                watchdogHandler.postDelayed(this, 1000)
+            }
+        }
+    }
+
+    // 문장 조각을 모으는 변수
+    private val accumulatedScript = StringBuilder()
+
+
+
+    /**
+     * ---------메소드들-----------
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -94,7 +138,7 @@ class AnalysisFragment : Fragment() {
         ) { isGranted: Boolean ->
             // 권한 요청 결과 처리
             if (isGranted) {
-                // (!!) 권한 획득 시 바로 시작
+                // 권한 획득 시 바로 시작
                 checkMicrophonePermissionAndStartSTT()
             } else {
                 Toast.makeText(requireContext(), "마이크 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
@@ -116,7 +160,7 @@ class AnalysisFragment : Fragment() {
 
         binding.textViewNowspeaking.text = speakingSentence
 
-        // (!!) STT 클라이언트 초기화 (백그라운드 스레드에서)
+        // STT 클라이언트 초기화 (백그라운드 스레드에서)
         Thread {
             setupStreamingSTT()
         }.start()
@@ -128,7 +172,7 @@ class AnalysisFragment : Fragment() {
         // 처음엔 중단 버튼 숨기기
         binding.imageViewStop.visibility = View.GONE
 
-        // 마이크 클릭 처리: STT 시작
+        // 마이크 클릭 처리
         binding.imageViewMic.setOnClickListener {
             if (!isListening) {
                 // 권한 확인 후 STT 시작
@@ -136,9 +180,9 @@ class AnalysisFragment : Fragment() {
             }
         }
 
-        // 중단 버튼 클릭 처리: STT 중단
+        // 중단 버튼 클릭 처리
         binding.imageViewStop.setOnClickListener {
-            stopStreamingAudio()
+            stopStreamingAudio()    // STT 중단
             stompClient.disconnect() // 웹소켓 연결 해제
         }
     }
@@ -171,55 +215,56 @@ class AnalysisFragment : Fragment() {
         }
     }
 
-    // 마이크 권한 확인 및 STT 시작 로직
+    // 마이크 권한 확인 및 STT 시작
     private fun checkMicrophonePermissionAndStartSTT() {
         if (ContextCompat.checkSelfPermission(requireContext(), android.Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED) {
 
-            // (!!) SpeechClient가 초기화되었는지 확인
+            // SpeechClient 초기화
             if (speechClient == null) {
                 Toast.makeText(requireContext(), "STT 엔진을 초기화 중입니다. 잠시 후 다시 시도하세요.", Toast.LENGTH_SHORT).show()
-                Thread { setupStreamingSTT() }.start() // (재시도)
+                Thread { setupStreamingSTT() }.start() // 재시도
                 return
             }
 
-            // (!!) 새 시작 함수 호출
+            // 녹음 및 오디오 스레드, STT 전송 스레드 시작
             startStreamingAudio()
         } else {
             requestPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
         }
     }
 
-    // 기존 inner class STTListener 는 삭제합니다.
-
     /**
-     * Google Cloud STT 서버로부터 실시간 응답(텍스트)을 수신하는 콜백 객체입니다.
+     * Google Cloud STT 서버로부터 실시간 응답(변환 텍스트)을 수신하는 콜백 객체
      */
     private val responseObserver = object : ApiStreamObserver<StreamingRecognizeResponse> {
 
         /**
-         * 서버에서 STT 결과(중간 또는 최종)가 도착했을 때 호출됩니다.
-         * (이 함수는 백그라운드 스레드에서 실행됩니다)
+         * 서버에서 STT 결과가 도착했을 때 호출
+         * (백그라운드 스레드에서 실행)
          */
         override fun onNext(response: StreamingRecognizeResponse) {
-            // 1. 유효한 결과가 있는지 확인
+            // 최근 응답 시간 갱신
+            lastSttResponseTime = System.currentTimeMillis()
+
+            // 유효한 결과가 있는지 확인
             val result = response.resultsList.firstOrNull()
             if (result == null || result.alternativesList.isEmpty()) {
                 return
             }
 
-            // 2. 인식된 텍스트 추출
+            // 인식된 텍스트 추출
             val transcript = result.alternativesList[0].transcript.trim()
 
-            // 3. (중요) UI 스레드로 전환하여 기존 로직 실행
+            // UI 스레드로 전환하여 작업
             activity?.runOnUiThread {
                 if (result.isFinal) {
                     // --- '최종' 결과 (onResults와 유사) ---
                     Log.d(TAG, "[최종] $transcript")
 
-                    // 기존 onResults 로직 (버퍼 누적 및 진행률 계산)
+                    // 버퍼 누적 및 진행률 계산
                     recognizedSpeechBuffer.append(transcript).append(" ")
-                    trimSpeechBufferIfNeeded()
+                    //trimSpeechBufferIfNeeded()  // 버퍼 관리
                     val textToSend = recognizedSpeechBuffer.toString().trim()
 
                     stompClient.sendSttTextForProgress(speakingId, speakingSentence, textToSend)
@@ -228,66 +273,71 @@ class AnalysisFragment : Fragment() {
                     // --- '중간' 결과 (onPartialResults와 유사) ---
                     Log.d(TAG, "[중간] $transcript")
 
-                    // 기존 onPartialResults 로직 (잡음 필터링 및 힌트 요청)
+                    // 잡음 필터링 해서 STT 전송
                     if (isMeaningfulSpeech(transcript)) {
-                        stompClient.sendSttText(transcript) // 힌트 추적 요청
-                        stompClient.sendSttTextForProgress(speakingId, speakingSentence, transcript) // 진행률 즉시 반영
+                        stompClient.sendSttText(transcript) // STT 전송
+                        //stompClient.sendSttTextForProgress(speakingId, speakingSentence, transcript) // 진행률 계산
                     }
                 }
             }
         }
 
-        /** 오류 발생 시 (기존 onError와 유사) */
+        /** 오류 발생 시  */
         override fun onError(t: Throwable) {
             Log.e(TAG, "STT 스트리밍 오류", t)
-            // (필요시) 스트리밍 재시작 로직
+            // 사용자가 중지한 게 아니라면, 전송 스레드만 재시작
+            if (isListening) {
+                activity?.runOnUiThread { startSttTransmission() }
+            }
         }
 
-        /** 스트림이 정상 종료되었을 때 */
+        /** 스트림이 정상 종료되었을 때 (재시작) */
         override fun onCompleted() {
             Log.d(TAG, "STT 스트리밍 완료")
+            // 사용자가 중지한 게 아니라면, 전송 스레드만 재시작
+            if (isListening) {
+                activity?.runOnUiThread { startSttTransmission() }
+            }
         }
     }
 
     /**
      * STT 결과가 잡음이나 짧은 감탄사가 아닌 유의미한 발화인지 판단합니다.
-     * 이 함수가 false를 반환하면 침묵 타이머가 리셋되지 않습니다.
      * @param text STT 엔진으로부터 수신된 텍스트
      * @return 유의미하면 true, 잡음성 텍스트면 false
      */
     private fun isMeaningfulSpeech(text: String): Boolean {
-        // 1. 전처리: 구두점과 공백을 제거하여 실제 내용물만 비교할 수 있도록 정규화
+        // 전처리: 구두점과 공백을 제거하여 실제 내용물만 비교할 수 있도록 정규화
         // 구두점과 공백을 제거해도 텍스트가 남아있는지 확인
         val normalizedText = text.replace(Regex("[\\s.,?!:;\"'\\-_]"), "").trim()
 
-//        // 2. 최소 길이 검사 (정규화된 텍스트 기준)
-//        // 2글자 미만은 대부분 잡음 (예: "아", "음")
-//        if (normalizedText.length < 2) {
-//            Log.v(TAG, "FILTERED: 짧은 길이 ($normalizedText)")
-//            return false
-//        }
+        // 최소 길이 검사 (정규화된 텍스트 기준)
+        // 2글자 미만은 대부분 잡음 ("아", "음" 등)
+        if (normalizedText.length < 20) {
+            //Log.v(TAG, "FILTERED: 짧은 길이 ($normalizedText)")
+            return false
+        }
 
-        // 3. 반복되는 문자열 검사 (정규화된 텍스트 기준)
+        // 반복되는 문자열 검사 (정규화된 텍스트 기준)
         // "ㅋㅋㅋ", "아아아", "......" 등 의미 없는 반복
         if (normalizedText.all { it == normalizedText.first() } && normalizedText.length > 1) {
             Log.v(TAG, "FILTERED: 반복 문자열 ($normalizedText)")
             return false
         }
 
-        // 4. 잡음/감탄사 패턴 검사
-        // '아', '에', '이', '오', '우', '음', '흠', '흐' 등으로만 이루어진 패턴 (한 글자 초과)
+        // 잡음/감탄사 패턴 검사
+        // '아', '에', '이', '오', '우', '음', '흠', '흐' 등으로만 이루어진 패턴
         val noisePattern = Regex("^[아에이오우음흠흐]+$")
         if (normalizedText.matches(noisePattern)) {
             Log.v(TAG, "FILTERED: 감탄사 패턴 ($normalizedText)")
             return false
         }
 
-        // 5. 일반적인 잡음 키워드 포함 검사
+        // 일반적인 잡음 키워드 포함 검사
         val commonNoiseKeywords = listOf("콜록", "에헴", "음", "흐음", "어", "아", "음...", "음...")
         for (keyword in commonNoiseKeywords) {
             if (normalizedText.contains(keyword)) {
-                // "음"이 포함된 텍스트라도 길이가 길면 유의미할 수 있으므로,
-                // 길이가 짧거나 (예: 4글자 미만) 해당 키워드와 매우 유사할 경우에만 필터링
+                // 잡음이 포함된 텍스트라도 길이가 길면 유의미할 수 있으므로, 길이가 짧거나 (4글자 미만으로 설정) 해당 키워드와 매우 유사할 경우에만 필터링
                 if (normalizedText.length < 4 || normalizedText == keyword.replace("...", "")) {
                     Log.v(TAG, "FILTERED: 일반 잡음 키워드 포함 ($normalizedText)")
                     return false
@@ -295,7 +345,7 @@ class AnalysisFragment : Fragment() {
             }
         }
 
-        // 위 필터를 모두 통과하면 유의미한 발화로 간주하여 타이머 리셋
+        // 위 필터를 모두 통과하면 유의미한 발화로 간주
         return true
     }
 
@@ -305,71 +355,132 @@ class AnalysisFragment : Fragment() {
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private fun startStreamingAudio() {
         if (isListening) return
-
-        // (권한 확인 로직은 checkMicrophonePermissionAndStartSTT 재활용)
-
-        // (1) AudioRecord 초기화
-        bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            channelConfig,
-            audioFormat,
-            bufferSize
-        )
-
-        // (2) STT 스트림 요청 시작
-        // (responseObserver가 응답을 처리합니다)
-        requestObserver = speechClient?.streamingRecognizeCallable()?.bidiStreamingCall(responseObserver)
-
-        // (3) STT 스트림 설정 전송 (어떤 오디오인지 알려주기)
-        val recognitionConfig = RecognitionConfig.newBuilder()
-            .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
-            .setSampleRateHertz(sampleRate)
-            .setLanguageCode("ko-KR") // 한국어 설정
-            .setEnableAutomaticPunctuation(true) // 자동 구두점
-            .build()
-
-        val streamingConfig = StreamingRecognitionConfig.newBuilder()
-            .setConfig(recognitionConfig)
-            .setInterimResults(true) // (핵심!) 중간 결과 받기
-            .build()
-
-        val initialRequest = StreamingRecognizeRequest.newBuilder()
-            .setStreamingConfig(streamingConfig)
-            .build()
-
-        requestObserver?.onNext(initialRequest)
-
-        // (4) AudioRecord 녹음 시작
-        audioRecord?.startRecording()
         isListening = true
 
-        // (5) (핵심!) 오디오 읽기/전송을 위한 백그라운드 스레드 시작
-        Thread {
+        // AudioRecord 초기화
+        try {
+            bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC, sampleRate, channelConfig, audioFormat, bufferSize
+            )
+            audioRecord?.startRecording()
+        } catch (e: Exception) {
+            Log.e(TAG, "마이크 초기화 실패: ${e.message}")
+            isListening = false
+            return
+        }
+
+        // [스레드 A] 오디오 녹음 스레드
+        audioRecordingThread = Thread {
+            Log.d(TAG, "[스레드 A] 녹음 시작")
             val buffer = ByteArray(bufferSize)
+            var errorCount = 0
+
             while (isListening) {
-                // 오디오 버퍼 읽기
-                val readSize = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                try {
+                    val readSize = audioRecord?.read(buffer, 0, buffer.size) ?: -1
 
-                if (readSize > 0) {
-                    // 읽은 오디오 데이터를 ByteString으로 변환
-                    val audioData = ByteString.copyFrom(buffer, 0, readSize)
+                    if (readSize > 0) {
+                        // 정상: 큐에 데이터 넣기
+                        audioBuffer.offer(buffer.copyOf(readSize))
+                        errorCount = 0 // 성공하면 에러 카운트 초기화
+                    } else {
+                        // 비정상: 오디오 읽기 실패 예외 처리
+                        Log.w(TAG, "[스레드 A] 오디오 읽기 실패 (코드: $readSize)")
+                        errorCount++
 
-                    // STT 서버로 오디오 데이터 스트리밍
-                    val request = StreamingRecognizeRequest.newBuilder()
-                        .setAudioContent(audioData)
-                        .build()
-                    requestObserver?.onNext(request)
+                        // 연속으로 에러가 나면 잠깐 쉬어줌 (CPU 과부하 방지)
+                        if (errorCount > 10) Thread.sleep(100)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "[스레드 A] 치명적 오류: ${e.message}")
                 }
             }
-        }.start()
+            Log.d(TAG, "[스레드 A] 녹음 스레드 종료")
+        }
+        audioRecordingThread?.start()
 
-        // (6) UI 및 타이머 시작 (기존 로직)
+        // [스레드 B] 시작
+        startSttTransmission()
+
+        // 감시자 가동 (현재 시간으로 초기화)
+        lastSttResponseTime = System.currentTimeMillis()
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+        watchdogHandler.postDelayed(watchdogRunnable, 2000) // 2초 뒤부터 감시 시작
+
+        // STOMP 연결 상태 확인 및 재연결
+        if (!stompClient.isConnected) {
+            // 이미 onViewCreated에서 연결했더라도, 중간에 끊겼으면 다시 연결 시도
+            stompClient.connect()
+        }
+
+        // UI 스레드 작업
         activity?.runOnUiThread {
             binding.imageViewStop.visibility = View.VISIBLE
             Toast.makeText(requireContext(), "발표를 시작합니다.", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * [스레드 B] STT 전송 스트림 및 스레드를 (재)시작합니다.
+     */
+    private fun startSttTransmission() {
+        if (!isListening) return
+        Log.d(TAG, "[스레드 B] STT 전송 스트림 (재)시작...")
+
+        // 스트림 연결
+        try {
+            requestObserver = speechClient?.streamingRecognizeCallable()?.bidiStreamingCall(responseObserver)
+
+            val recognitionConfig = RecognitionConfig.newBuilder()
+                .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
+                .setSampleRateHertz(sampleRate)
+                .setLanguageCode("ko-KR")
+                .setEnableAutomaticPunctuation(true)
+                .build()
+            val streamingConfig = StreamingRecognitionConfig.newBuilder()
+                .setConfig(recognitionConfig)
+                .setInterimResults(true)
+                .build()
+            val initialRequest = StreamingRecognizeRequest.newBuilder()
+                .setStreamingConfig(streamingConfig)
+                .build()
+
+            requestObserver?.onNext(initialRequest)
+
+            Thread.sleep(200)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "[스레드 B] 스트림 초기화 실패: ${e.message}")
+            return
+        }
+
+        // [스레드 B] 전송 루프
+        sttTransmissionThread = Thread {
+            Log.d(TAG, "[스레드 B] 전송 루프 진입")
+            while (isListening) {
+                try {
+                    // 큐에서 데이터 꺼내기 (데이터가 없으면 여기서 대기)
+                    val audioData = audioBuffer.take()
+
+                    // STT 전송
+                    val request = StreamingRecognizeRequest.newBuilder()
+                        .setAudioContent(ByteString.copyFrom(audioData))
+                        .build()
+                    requestObserver?.onNext(request)
+
+                } catch (e: InterruptedException) {
+                    Log.d(TAG, "[스레드 B] 인터럽트로 종료")
+                    break
+                } catch (e: Exception) {
+                    // 스트림이 끊겼을 때 주로 발생
+                    Log.w(TAG, "[스레드 B] 전송 중 오류 (재시작 대기): ${e.message}")
+                    break
+                }
+            }
+            Log.d(TAG, "[스레드 B] 전송 스레드 종료")
+        }
+        sttTransmissionThread?.start()
     }
 
     /**
@@ -378,35 +489,43 @@ class AnalysisFragment : Fragment() {
     private fun stopStreamingAudio() {
         if (!isListening) return
 
+        // 감시자 비활성화
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+
         isListening = false
 
-        // (1) AudioRecord 중지 및 해제
+        // [스레드 A] 중지 - 스레드 자체도 중단
+        audioRecordingThread?.interrupt()
         audioRecord?.stop()
         audioRecord?.release()
         audioRecord = null
+        audioRecordingThread = null
 
-        // (2) STT 스트림 종료 알림
-        requestObserver?.onCompleted()
+        // [스레드 B] 중지
+        // .take()에서 대기 중일 수 있으므로 interrupt()로 깨워야 함
+        sttTransmissionThread?.interrupt()
+        requestObserver?.onCompleted() // STT 서버에 종료 알림
         requestObserver = null
+        sttTransmissionThread = null
 
-        // (3) UI 및 타이머 중지 (기존 로직)
+        // 큐 비우기
+        audioBuffer.clear()
+
+        // 텍스트 버퍼 비우기
+        recognizedSpeechBuffer.setLength(0)
+
+        // 종료 메시지
         binding.imageViewStop.visibility = View.GONE
         Toast.makeText(requireContext(), "발표가 종료되었습니다.", Toast.LENGTH_SHORT).show()
-        cancelHintTimer()
-
     }
 
-    private fun cancelHintTimer() {
-        hintHandler.removeCallbacks(hintTimerRunnable)
-    }
-
-    // 웹소켓으로 힌트 메시지를 수신했을 때 실행될 콜백 함수
+    // 웹소켓으로 힌트 메시지(현재 발화 중인 문장 id와 내용, 유사도, 처리 시간)를 수신했을 때 실행될 콜백 함수
     private fun onHintReceived(response: SimilarityResponse) {
         Log.d(TAG, "서버에서 힌트 수신: ${response.mostSimilarId}")
         if (isAdded) {
             // 힌트를 UI에 표시
             binding.textViewResult.text = ""
-            binding.textViewResult.text = response.mostSimilarText
+            binding.textViewResult.text = "가장 유사한 문장:\n${response.mostSimilarText}"
 
             speakingSentence = response.mostSimilarText
             speakingId = response.mostSimilarId
@@ -418,32 +537,35 @@ class AnalysisFragment : Fragment() {
     // 진행률 계산 결과 수신했을 때
     private fun onProgressReceived(progress: ProgressResponse){
         Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
-        if (isAdded) {
+        // null이 아니면서 현재와 다른
+        if (isAdded && progress.nextScriptId != null) {
             // 진행률 UI에 표시(임시)
             binding.textViewProgress.text = ""
             binding.textViewProgress.text = ("다음 문장 id: ${progress.nextScriptId}")
+
+            Log.d(TAG, "문장 일치 성공. 버퍼를 깨끗이 비웁니다.")
+            recognizedSpeechBuffer.setLength(0)
         }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
 
+        // 스트리밍 중지
+        if (isListening) {
+            stopStreamingAudio()
+        }
+
         // 웹소켓 연결 해제
         if (::stompClient.isInitialized) {
             stompClient.disconnect()
         }
 
-        // (!!) 스트리밍 중지
-        if (isListening) {
-            stopStreamingAudio()
-        }
-
-        // (!!) STT 클라이언트 해제
+        // STT 클라이언트 해제
         speechClient?.shutdown()
         speechClient?.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)
         speechClient = null
 
-        cancelHintTimer()
         _binding = null
     }
 
