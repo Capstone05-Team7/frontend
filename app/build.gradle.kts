@@ -39,6 +39,13 @@ android {
         viewBinding = true
         dataBinding = true
     }
+
+    packaging {
+        // 중복되는 'META-INF/DEPENDENCIES' 파일 발견 시,
+        // 빌드 시스템이 발견한 첫 번째 파일을 선택하고 나머지는 무시
+        pickFirst("META-INF/DEPENDENCIES")
+        exclude("META-INF/INDEX.LIST")
+    }
 }
 
 dependencies {
@@ -77,6 +84,10 @@ dependencies {
     // STOMP 라이브러리가 의존하는 RxJava 및 RxAndroid 추가
     implementation(libs.rxjava2)
     implementation(libs.rxandroid)
+
+    // Google Cloud STT
+    implementation(libs.google.cloud.speech)
+    implementation(libs.grpc.okhttp)
 
 
 }
