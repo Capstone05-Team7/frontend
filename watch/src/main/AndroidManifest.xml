@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <uses-feature android:name="android.hardware.type.watch" />
+
+
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault">
+
+        <!-- Wear OS 필수 라이브러리 사용 선언 -->
+        <uses-library
+            android:name="com.google.android.wearable"
+            android:required="true" />
+        <uses-library
+            android:name="wear-sdk"
+            android:required="false" />
+
+        <!--
+               Set to true if your app is Standalone, that is, it does not require the handheld
+               app to run.
+        -->
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+
+        <!-- 1. 메인 Activity 등록 -->
+        <activity
+            android:name=".presentation.WatchMainActivity"
+            android:exported="true"
+            android:taskAffinity=""
+            android:theme="@style/WatchMainActivityTheme.Starting">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 2. 데이터 레이어 수신 서비스 등록 (최신 권장 방식) -->
+        <!-- BIND_WEARABLE_LISTENER 권한을 명시하여 시스템이 이 서비스를 바인딩하도록 합니다. -->
+        <!-- Deprecated된 BIND_LISTENER 인텐트 필터는 제거되었습니다. -->
+        <service
+            android:name=".presentation.WatchImageReceiverService"
+            android:exported="true"
+            android:permission="com.google.android.gms.permission.BIND_WEARABLE_LISTENER">
+            <!-- 인텐트 필터 없음 -->
+        </service>
+
+    </application>
+
+</manifest>

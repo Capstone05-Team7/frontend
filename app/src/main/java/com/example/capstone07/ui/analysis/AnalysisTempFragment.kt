@@ -24,6 +24,7 @@ class AnalysisTempFragment : Fragment() {
     private lateinit var adapter: AnalysisAdapter
 
     private var projectId: Int = -1
+    private var scripts: List<ScriptResponseFragment> = emptyList()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -51,8 +52,7 @@ class AnalysisTempFragment : Fragment() {
         call.enqueue(object : Callback<ScriptResponse> {
             override fun onResponse(call: Call<ScriptResponse>, response: Response<ScriptResponse>) {
                 if (response.isSuccessful) {
-                    val scripts: List<ScriptResponseFragment> =
-                        response.body()?.result?.firstOrNull()?.scripts ?: emptyList()
+                    scripts = response.body()?.result?.firstOrNull()?.scripts ?: emptyList()
                     adapter.setScripts(scripts)
                 }
             }
@@ -64,9 +64,17 @@ class AnalysisTempFragment : Fragment() {
 
         val startBtn = view.findViewById<ImageButton>(R.id.analysis_start_ib)
         startBtn.setOnClickListener {
+            val fragment = AnalysisFragment()
+
+            val bundle = Bundle().apply {
+                putParcelableArrayList("scripts", ArrayList(scripts))
+            }
+
+            fragment.arguments = bundle
+
             parentFragmentManager.beginTransaction()
-                .replace(R.id.main_container_frl, AnalysisFragment())
-                .addToBackStack(null) // 뒤로가기 시 이전 화면으로 돌아가게
+                .replace(R.id.main_container_frl, fragment)
+                .addToBackStack(null)
                 .commit()
         }
     }

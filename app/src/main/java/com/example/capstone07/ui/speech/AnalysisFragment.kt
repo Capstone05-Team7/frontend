@@ -2,6 +2,8 @@ package com.example.capstone07.ui.speech
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -18,11 +20,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.example.capstone07.R
 import com.example.capstone07.databinding.FragmentAnalysisBinding
+import com.example.capstone07.model.ScriptResponseFragment
 import com.example.capstone07.remote.PresentationStompClient
 import com.example.capstone07.remote.ProgressResponse
 import com.example.capstone07.remote.SimilarityResponse
+import com.google.android.gms.wearable.Asset
+import com.google.android.gms.wearable.PutDataMapRequest
+import com.google.android.gms.wearable.Wearable
+import com.google.android.gms.tasks.Tasks
 import com.google.api.gax.core.FixedCredentialsProvider
 import com.google.api.gax.rpc.ApiStreamObserver
 import com.google.auth.oauth2.GoogleCredentials
@@ -33,7 +41,15 @@ import com.google.cloud.speech.v1.SpeechSettings
 import com.google.cloud.speech.v1.StreamingRecognitionConfig
 import com.google.cloud.speech.v1.StreamingRecognizeRequest
 import com.google.cloud.speech.v1.StreamingRecognizeResponse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.LinkedBlockingQueue
+
 
 class AnalysisFragment : Fragment() {
 
@@ -43,6 +59,9 @@ class AnalysisFragment : Fragment() {
 
     private var _binding: FragmentAnalysisBinding? = null
     private val binding get() = _binding!!
+
+    // 받아오는 스크립트 정보
+    val scripts = arguments?.getParcelableArrayList<ScriptResponseFragment>("scripts")
 
     // for Google Cloud STT
     private var speechClient: SpeechClient? = null
@@ -534,18 +553,96 @@ class AnalysisFragment : Fragment() {
         }
     }
 
-    // 진행률 계산 결과 수신했을 때
-    private fun onProgressReceived(progress: ProgressResponse){
-        Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
-        // null이 아니면서 현재와 다른
-        if (isAdded && progress.nextScriptId != null) {
-            // 진행률 UI에 표시(임시)
-            binding.textViewProgress.text = ""
-            binding.textViewProgress.text = ("다음 문장 id: ${progress.nextScriptId}")
+    private var lastNextScriptId: Int? = null
 
-            Log.d(TAG, "문장 일치 성공. 버퍼를 깨끗이 비웁니다.")
-            recognizedSpeechBuffer.setLength(0)
+    // 진행률 계산 결과 수신했을 때
+//    private fun onProgressReceived(progress: ProgressResponse){
+//        Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
+//        // null이 아니면서 현재와 다른
+//        if (isAdded && progress.nextScriptId != null) {
+//            // 진행률 UI에 표시(임시)
+//            binding.textViewProgress.text = ""
+//            binding.textViewProgress.text = ("다음 문장 id: ${progress.nextScriptId}")
+//
+//            Log.d(TAG, "문장 일치 성공. 버퍼를 깨끗이 비웁니다.")
+//            recognizedSpeechBuffer.setLength(0)
+//        }
+//    }
+
+    private fun onProgressReceived(progress: ProgressResponse) {
+        Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
+
+        val nextId = progress.nextScriptId ?: return
+
+        val nextIdInt = nextId.toIntOrNull()
+        if (nextIdInt == null) {
+            Log.e(TAG, "nextScriptId 변환 실패: $nextId")
+            return
         }
+
+        if (lastNextScriptId == nextIdInt) {
+            Log.d(TAG, "nextScriptId 동일 → 처리 스킵")
+            return
+        }
+        lastNextScriptId = nextIdInt
+
+        val scriptList = arguments?.getParcelableArrayList<ScriptResponseFragment>("scripts")
+        val targetScript = scriptList?.firstOrNull { it.sentenceId == nextIdInt }
+
+        if (targetScript != null) {
+            Log.d(TAG, "이미지 찾기 성공: ${targetScript.image}")
+
+            // ⭐ suspend 함수이므로 Coroutine으로 실행
+            lifecycleScope.launch {
+                sendImageToWatch(targetScript.image)
+            }
+
+        } else {
+            Log.w(TAG, "ID=$nextIdInt 스크립트를 찾을 수 없음.")
+        }
+    }
+
+    private val dataClient by lazy { Wearable.getDataClient(requireContext()) }
+
+    // 주의: 이 함수는 suspend 함수이며, 네트워크 및 IO 작업이 포함되므로
+// 호출하는 쪽에서 lifecycleScope.launch 등 코루틴으로 실행해야 합니다.
+    private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
+        try {
+            // 1. 이미지 다운로드 (여기서는 Coil 또는 Glide 등의 라이브러리 사용 권장)
+            // 간단한 예시로 URL.openConnection()을 사용한 BitMap 다운로드
+            val url = URL(imageUrl)
+            val connection: HttpURLConnection = url.openConnection() as HttpURLConnection
+            connection.doInput = true
+            connection.connect()
+            val input: InputStream = connection.inputStream
+            val bitmap = BitmapFactory.decodeStream(input)
+
+            // 2. 이미지를 바이트 배열로 변환
+            val asset: Asset = createAssetFromBitmap(bitmap)
+
+            // 3. PutDataRequest 생성
+            val request = PutDataMapRequest.create("/image_display").apply {
+                // Asset 첨부
+                dataMap.putAsset("target_image", asset)
+                // 전송 시점을 고유하게 식별하기 위한 타임스탬프 (선택 사항이지만 권장)
+                dataMap.putLong("timestamp", System.currentTimeMillis())
+            }.asPutDataRequest()
+
+            // 4. DataItem 전송
+            val response = Tasks.await(dataClient.putDataItem(request))
+            Log.d(TAG, "이미지 전송 성공: $response")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "이미지 다운로드 또는 전송 실패", e)
+        }
+    }
+
+    // BitMap을 Asset으로 변환하는 헬퍼 함수
+    private fun createAssetFromBitmap(bitmap: Bitmap): Asset {
+        val byteStream = ByteArrayOutputStream()
+        // 워치에서 JPEG도 지원하지만, PNG가 손실이 적어 가독성이 높을 수 있습니다.
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
+        return Asset.createFromBytes(byteStream.toByteArray())
     }
 
     override fun onDestroyView() {

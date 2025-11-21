@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("kotlin-parcelize")
 }
 
 android {
@@ -89,5 +90,12 @@ dependencies {
     implementation(libs.google.cloud.speech)
     implementation(libs.grpc.okhttp)
 
+    // watch 관련
+    implementation("com.google.android.gms:play-services-wearable:18.1.0")
+    implementation("com.google.android.gms:play-services-tasks:18.1.0")
 
+    // 코루틴 핵심 라이브러리
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3") // 최신 버전 확인
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2") // 최신 버전 확인
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2") // 필요할 수 있음
 }

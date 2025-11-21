@@ -1,5 +1,8 @@
 package com.example.capstone07.model
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
 data class ScriptResponse(
     val isSuccess: Boolean,
     val code: String,
@@ -12,12 +15,14 @@ data class ScriptResponseData(
     val scripts: List<ScriptResponseFragment>
 )
 
+@Parcelize
 data class ScriptResponseFragment(
     val sentenceId: Int,
     val sentenceOrder: Int,
     val sentenceFragmentContent: String,
-    var keyword: String
-)
+    var keyword: String,
+    var image: String
+) : Parcelable
 
 data class ScriptRegisterResponse(
     val isSuccess: Boolean,

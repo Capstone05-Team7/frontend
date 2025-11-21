@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "capstone07"
 include(":app")
+include(":watch")
