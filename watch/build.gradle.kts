@@ -56,16 +56,12 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // 1. AndroidX Lifecycle/ViewModel (for viewModel() 함수 사용)
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    // 2. Kotlin Coroutines (코루틴 사용 및 GMS Task .await() 확장 함수 제공)
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
-    // 3. GMS Play Services Coroutines KTX (getAssetInputStream().await() 에러 해결)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0")
 
-    // Wearable API
     implementation("com.google.android.gms:play-services-wearable:18.1.0")
-    implementation("com.google.android.gms:play-services-tasks-ktx:18.0.2")
 }
