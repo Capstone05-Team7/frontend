@@ -589,10 +589,19 @@ class AnalysisFragment : Fragment() {
         val scriptList = arguments?.getParcelableArrayList<ScriptResponseFragment>("scripts")
         val targetScript = scriptList?.firstOrNull { it.sentenceId == nextIdInt }
 
+        System.out.println(targetScript)
+
         if (targetScript != null) {
+
+            // 🔥 여기 추가!!!
+            if (targetScript.image.isNullOrEmpty()) {
+                Log.e(TAG, "이미지 없음 → 워치에 전송 스킵")
+                return
+            }
+
             Log.d(TAG, "이미지 찾기 성공: ${targetScript.image}")
 
-            // ⭐ suspend 함수이므로 Coroutine으로 실행
+            // suspend 함수이므로 Coroutine에서 호출
             lifecycleScope.launch {
                 sendImageToWatch(targetScript.image)
             }
@@ -604,31 +613,28 @@ class AnalysisFragment : Fragment() {
 
     private val dataClient by lazy { Wearable.getDataClient(requireContext()) }
 
-    // 주의: 이 함수는 suspend 함수이며, 네트워크 및 IO 작업이 포함되므로
-// 호출하는 쪽에서 lifecycleScope.launch 등 코루틴으로 실행해야 합니다.
+    // 이미지 관련 함수
     private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
         try {
-            // 1. 이미지 다운로드 (여기서는 Coil 또는 Glide 등의 라이브러리 사용 권장)
-            // 간단한 예시로 URL.openConnection()을 사용한 BitMap 다운로드
             val url = URL(imageUrl)
-            val connection: HttpURLConnection = url.openConnection() as HttpURLConnection
+            val connection = url.openConnection() as HttpURLConnection
             connection.doInput = true
             connection.connect()
+
             val input: InputStream = connection.inputStream
-            val bitmap = BitmapFactory.decodeStream(input)
 
-            // 2. 이미지를 바이트 배열로 변환
-            val asset: Asset = createAssetFromBitmap(bitmap)
+            // 1. 그냥 이미지 바이트 배열로 바로 읽기
+            val imageBytes = input.readBytes()
 
-            // 3. PutDataRequest 생성
+            // 2. Asset 만들기
+            val asset = Asset.createFromBytes(imageBytes)
+
+            // 3. DataItem 생성
             val request = PutDataMapRequest.create("/image_display").apply {
-                // Asset 첨부
                 dataMap.putAsset("target_image", asset)
-                // 전송 시점을 고유하게 식별하기 위한 타임스탬프 (선택 사항이지만 권장)
                 dataMap.putLong("timestamp", System.currentTimeMillis())
             }.asPutDataRequest()
 
-            // 4. DataItem 전송
             val response = Tasks.await(dataClient.putDataItem(request))
             Log.d(TAG, "이미지 전송 성공: $response")
 

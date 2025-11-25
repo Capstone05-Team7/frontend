@@ -43,14 +43,17 @@
             </intent-filter>
         </activity>
 
-        <!-- 2. 데이터 레이어 수신 서비스 등록 (최신 권장 방식) -->
-        <!-- BIND_WEARABLE_LISTENER 권한을 명시하여 시스템이 이 서비스를 바인딩하도록 합니다. -->
-        <!-- Deprecated된 BIND_LISTENER 인텐트 필터는 제거되었습니다. -->
+        <!-- 2. 데이터 레이어 수신 서비스 등록 -->
         <service
             android:name=".presentation.WatchImageReceiverService"
             android:exported="true"
             android:permission="com.google.android.gms.permission.BIND_WEARABLE_LISTENER">
-            <!-- 인텐트 필터 없음 -->
+
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/image_display" />
+            </intent-filter>
+
         </service>
 
     </application>
