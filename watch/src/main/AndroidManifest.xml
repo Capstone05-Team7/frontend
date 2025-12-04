@@ -5,8 +5,6 @@
 
     <uses-feature android:name="android.hardware.type.watch" />
 
-
-
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -32,7 +30,7 @@
 
         <!-- 1. 메인 Activity 등록 -->
         <activity
-            android:name=".presentation.WatchMainActivity"
+            android:name="com.example.capstone07.WatchMainActivity"
             android:exported="true"
             android:taskAffinity=""
             android:theme="@style/WatchMainActivityTheme.Starting">
@@ -45,9 +43,8 @@
 
         <!-- 2. 데이터 레이어 수신 서비스 등록 -->
         <service
-            android:name=".presentation.WatchImageReceiverService"
-            android:exported="true"
-            android:permission="com.google.android.gms.permission.BIND_WEARABLE_LISTENER">
+            android:name="com.example.capstone07.WatchImageReceiverService"
+            android:exported="true">
 
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />

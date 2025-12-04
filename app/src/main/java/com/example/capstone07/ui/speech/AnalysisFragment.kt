@@ -614,7 +614,7 @@ class AnalysisFragment : Fragment() {
     private val dataClient by lazy { Wearable.getDataClient(requireContext()) }
 
     // 이미지 관련 함수
-    private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
+    /*private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
         try {
             val url = URL(imageUrl)
             val connection = url.openConnection() as HttpURLConnection
@@ -633,6 +633,50 @@ class AnalysisFragment : Fragment() {
             val request = PutDataMapRequest.create("/image_display").apply {
                 dataMap.putAsset("target_image", asset)
                 dataMap.putLong("timestamp", System.currentTimeMillis())
+            }.asPutDataRequest()
+
+            val response = Tasks.await(dataClient.putDataItem(request))
+            Log.d(TAG, "이미지 전송 성공: $response")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "이미지 다운로드 또는 전송 실패", e)
+        }
+    }*/
+
+    private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(imageUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.doInput = true
+            connection.connect()
+
+            val input: InputStream = connection.inputStream
+
+            // 🔹 이미지 Bitmap으로 변환
+            val originalBitmap = BitmapFactory.decodeStream(input)
+
+            // 🔹 크기 조정 (너무 크면 Binder 실패)
+            val maxDimension = 400 // 원하는 최대 크기
+            val scaledBitmap = if (originalBitmap.width > maxDimension || originalBitmap.height > maxDimension) {
+                val ratio = originalBitmap.width.toFloat() / originalBitmap.height.toFloat()
+                if (ratio > 1) {
+                    Bitmap.createScaledBitmap(originalBitmap, maxDimension, (maxDimension / ratio).toInt(), true)
+                } else {
+                    Bitmap.createScaledBitmap(originalBitmap, (maxDimension * ratio).toInt(), maxDimension, true)
+                }
+            } else {
+                originalBitmap
+            }
+
+            // 🔹 Asset으로 변환 (PNG 압축)
+            val byteStream = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.PNG, 80, byteStream)
+            val asset = Asset.createFromBytes(byteStream.toByteArray())
+
+            // 🔹 DataItem 생성 및 전송
+            val request = PutDataMapRequest.create("/image_display").apply {
+                dataMap.putAsset("target_image", asset)
+                dataMap.putLong("timestamp", System.currentTimeMillis()) // 매번 값 변경
             }.asPutDataRequest()
 
             val response = Tasks.await(dataClient.putDataItem(request))

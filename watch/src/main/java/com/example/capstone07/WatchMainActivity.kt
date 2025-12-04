@@ -1,4 +1,4 @@
-package com.example.watch.presentation
+package com.example.capstone07
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -19,7 +19,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.compose.material.*
-import com.example.watch.presentation.theme.Capstone07Theme
+import com.example.capstone07.theme.Capstone07Theme
 import com.google.android.gms.wearable.*
 import kotlinx.coroutines.*
 import java.io.InputStream
@@ -47,13 +47,21 @@ const val TAG = "WatchImageReceiver"
 
 class WatchImageReceiverService : WearableListenerService() {
 
-    // ViewModel 인스턴스를 서비스와 UI가 공유하기 위한 임시 static 변수
+    // ViewModel 인스턴스를 서비스와 UI가 공유하기 위한 변수
     companion object {
         var staticViewModel: ImageViewModel? = null
+        private var pendingBitmap: Bitmap? = null // 이미지를 임시 저장할 변수
 
         fun updateViewModel(vm: ImageViewModel) {
             staticViewModel = vm
             Log.d(TAG, "ViewModel 참조 설정됨.")
+
+            // ViewModel이 연결될 때, 보류 중인 이미지가 있는지 확인
+            pendingBitmap?.let {
+                vm.setBitmap(it)
+                pendingBitmap = null // 전달 후 캐시 지우기
+                Log.d(TAG, "보류 중이던 이미지를 ViewModel에 전달했습니다.")
+            }
         }
     }
 
@@ -92,10 +100,16 @@ class WatchImageReceiverService : WearableListenerService() {
                 val bitmap = BitmapFactory.decodeStream(inputStream)
 
                 withContext(Dispatchers.Main) {
-                    staticViewModel?.let {
-                        it.setBitmap(bitmap)
+                    val vm = staticViewModel
+                    if (vm != null) {
+                        // ViewModel이 연결되어 있으면 즉시 업데이트
+                        vm.setBitmap(bitmap)
                         Log.d(TAG, "이미지 로드 및 ViewModel 업데이트 성공.")
-                    } ?: Log.e(TAG, "ViewModel이 설정되지 않아 이미지 업데이트 실패.")
+                    } else {
+                        // ViewModel이 아직 없으면 이미지를 보류
+                        pendingBitmap = bitmap
+                        Log.e(TAG, "ViewModel이 없어 이미지를 보류합니다.")
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Asset에서 이미지 로드 실패", e)
@@ -147,7 +161,6 @@ fun WearApp(viewModel: ImageViewModel) {
                 // 이미지가 없을 경우 안내 텍스트 표시
                 Text(
                     text = "이미지 대기 중...\n경로: $IMAGE_PATH",
-                    // [오류 2/3 해결] 텍스트 정렬은 TextAlign.Center를 사용합니다.
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colors.onBackground,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)

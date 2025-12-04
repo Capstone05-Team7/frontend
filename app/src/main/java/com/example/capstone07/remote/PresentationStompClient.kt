@@ -294,8 +294,8 @@ import ua.naiksoftware.stomp.dto.StompCommand
 
 
 // 서버 주소 및 포트가 실제와 다를 수 있으므로 확인 필요
-private const val WS_ENDPOINT = "ws://10.0.2.2:8080/ws/presentation/websocket"
-//private const val WS_ENDPOINT = "ws://3.34.163.79:8080/ws/presentation/websocket"
+//private const val WS_ENDPOINT = "ws://10.0.2.2:8080/ws/presentation/websocket"
+private const val WS_ENDPOINT = "ws://3.34.163.79:8080/ws/presentation/websocket"
 private const val TAG = "StompClient"
 
 /**

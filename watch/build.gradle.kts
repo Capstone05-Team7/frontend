@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.watch"
+    namespace = "com.example.capstone07"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.watch"
+        applicationId = "com.example.capstone07"
         minSdk = 30
         targetSdk = 36
         versionCode = 1

@@ -1,4 +1,4 @@
-package com.example.watch.presentation.theme
+package com.example.capstone07.theme
 
 import androidx.compose.runtime.Composable
 import androidx.wear.compose.material.MaterialTheme
