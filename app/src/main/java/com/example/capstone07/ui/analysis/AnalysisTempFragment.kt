@@ -1,16 +1,19 @@
 package com.example.capstone07.ui.analysis
 
+import android.app.AlertDialog
+import android.widget.ImageView
+import android.widget.Button
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
 import com.example.capstone07.ui.speech.AnalysisFragment
 import com.example.capstone07.NetworkModule
 import com.example.capstone07.R
@@ -48,7 +51,10 @@ class AnalysisTempFragment : Fragment() {
         val recyclerView = view.findViewById<RecyclerView>(R.id.analysis_scr_rcv)
         recyclerView.layoutManager = LinearLayoutManager(context)
 
-        adapter = AnalysisAdapter()
+        adapter = AnalysisAdapter(scripts) { imageUrl ->
+            showImageDialog(imageUrl)
+        }
+
         recyclerView.adapter = adapter
 
         // Retrofit service
@@ -113,6 +119,37 @@ class AnalysisTempFragment : Fragment() {
                 }
             }
         }
+    }
 
+    private fun showImageDialog(imageUrl: String) {
+        val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_image_preview, null)
+
+        val builder = AlertDialog.Builder(context)
+            .setView(dialogView)
+            .create()
+
+        // 다이얼로그 내부 뷰 찾기
+        val ivPreview = dialogView.findViewById<ImageView>(R.id.ivPreviewImage)
+        val btnResend = dialogView.findViewById<Button>(R.id.btnResend)
+        val btnOk = dialogView.findViewById<Button>(R.id.btnOk)
+
+        // 이미지 로드 (Glide)
+        Glide.with(this)
+            .load(imageUrl)
+            .placeholder(R.drawable.ic_launcher_background)
+            .into(ivPreview)
+
+        // RESEND 버튼: UI만 있고 기능 없음
+        btnResend.setOnClickListener {
+            // 나중에 기능 추가 (예: Log 찍기)
+            Log.d("Dialog", "Resend Clicked")
+        }
+
+        // OK 버튼: 다이얼로그 닫기
+        btnOk.setOnClickListener {
+            builder.dismiss()
+        }
+
+        builder.show()
     }
 }

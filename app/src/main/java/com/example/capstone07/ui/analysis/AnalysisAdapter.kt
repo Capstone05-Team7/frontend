@@ -10,7 +10,8 @@ import com.bumptech.glide.Glide
 import com.example.capstone07.R
 import com.example.capstone07.model.ScriptResponseFragment
 
-class AnalysisAdapter(private var scripts: List<ScriptResponseFragment> = emptyList()) :
+class AnalysisAdapter(private var scripts: List<ScriptResponseFragment> = emptyList(),
+                      private val onImageClick: (String) -> Unit) :
     RecyclerView.Adapter<AnalysisAdapter.MyViewHolder>() {
 
     inner class MyViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -39,6 +40,11 @@ class AnalysisAdapter(private var scripts: List<ScriptResponseFragment> = emptyL
             .placeholder(R.drawable.ic_launcher_background) // 로딩 중에 보여줄 이미지 (기본 아이콘 등)
             .error(R.drawable.ic_launcher_background)       // 로드 실패 시 보여줄 이미지
             .into(holder.keywordImageView)
+
+        // 이미지 클릭 시 Fragment로 이벤트를 전달
+        holder.keywordImageView.setOnClickListener {
+            onImageClick(script.image)
+        }
     }
 
     override fun getItemCount(): Int = scripts.size
