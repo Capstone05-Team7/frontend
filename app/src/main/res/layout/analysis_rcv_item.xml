@@ -3,11 +3,11 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:orientation="horizontal"
     android:gravity="center_vertical"
     android:padding="8dp"
     android:background="@drawable/edittext_border">
 
-    <!-- ScriptText -->
     <TextView
         android:id="@+id/tvScriptText"
         android:layout_width="0dp"
@@ -25,30 +25,13 @@
         android:layout_marginStart="8dp"
         android:layout_marginEnd="8dp" />
 
-    <FrameLayout
+    <ImageView
+        android:id="@+id/ivKeywordImage"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1">
+        android:layout_height="150dp"
+        android:layout_weight="1"
+        android:src="@drawable/ic_launcher_background"
+        android:scaleType="centerCrop"
+        android:contentDescription="Keyword Image" />
 
-        <!-- Keyword Text -->
-        <TextView
-            android:id="@+id/tvKeywordText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Scripttext"
-            android:textSize="16sp"
-            android:textColor="#222222"
-            android:gravity="center_vertical"/>
-
-        <!-- Keyword Edit -->
-        <EditText
-            android:id="@+id/etKeywordText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Scripttext"
-            android:textSize="16sp"
-            android:textColor="#222222"
-            android:gravity="center_vertical"
-            android:visibility="gone"/>
-    </FrameLayout>
 </LinearLayout>
