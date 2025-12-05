@@ -202,37 +202,37 @@ class AnalysisFragment : Fragment() {
         // 이미지 캐싱 완료 전까지 마이크 비활성화
         binding.imageViewMic.isEnabled = false
 
-        // 이미지 캐싱하는 과정
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
 
-            scripts.forEach { script ->
+            val jobs = scripts.map { script ->
+                launch {
+                    val id = script.sentenceId
+                    val imageUrl = script.image
 
-                val id = script.sentenceId
-                val imageUrl = script.image
+                    if (imageCacheDao.exists(id)) return@launch
 
-                val exists = imageCacheDao.exists(id)
-                if (exists) return@forEach
+                    try {
+                        val bitmap = downloadBitmap(imageUrl)
+                        val path = saveBitmap(appContext, bitmap, id)
 
-                try {
-                    val bitmap = downloadBitmap(imageUrl)
-                    val hash = bitmapToHash(bitmap)
-                    val path = saveBitmap(appContext, bitmap, id)
-
-                    imageCacheDao.insert(
-                        ImageCacheEntity(
-                            id = id,
-                            hash = hash,
-                            filePath = path
+                        imageCacheDao.insert(
+                            ImageCacheEntity(
+                                id = id,
+                                hash = "",
+                                filePath = path
+                            )
                         )
-                    )
 
-                } catch (e: Exception) {
-                    Log.e("ImageCache", "이미지 처리 실패: id=$id", e)
+                    } catch (e: Exception) {
+                        Log.e("ImageCache", "이미지 처리 실패: id=$id", e)
+                    }
                 }
             }
 
+            jobs.forEach { it.join() }
+
             withContext(Dispatchers.Main) {
-                binding.imageViewMic.isEnabled = true // 이미지 캐싱 완료되면 마이크 버튼 활성화
+                binding.imageViewMic.isEnabled = true
             }
         }
 
@@ -648,7 +648,12 @@ class AnalysisFragment : Fragment() {
             val bitmap = BitmapFactory.decodeFile(filePath)
 
             if (bitmap == null) {
-                Log.e(TAG, "❌ Bitmap 디코딩 실패: $filePath")
+                val file = File(filePath)
+                Log.e(
+                    TAG,
+                    "❌ Bitmap 디코딩 실패: $filePath " +
+                            "(exists=${file.exists()}, length=${file.length()}, lastModified=${file.lastModified()})"
+                )
                 return@launch
             }
 
@@ -684,17 +689,6 @@ class AnalysisFragment : Fragment() {
     suspend fun downloadBitmap(url: String): Bitmap {
         val connection = URL(url).openConnection()
         return BitmapFactory.decodeStream(connection.getInputStream())
-    }
-
-    // 비트맵을 해시로 변환
-    fun bitmapToHash(bitmap: Bitmap): String {
-        val buffer = ByteBuffer.allocate(bitmap.byteCount)
-        bitmap.copyPixelsToBuffer(buffer)
-
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hashBytes = digest.digest(buffer.array())
-
-        return Base64.encodeToString(hashBytes, Base64.NO_WRAP)
     }
 
     // 비트맵 저장.
