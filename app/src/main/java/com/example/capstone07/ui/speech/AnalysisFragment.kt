@@ -1,6 +1,7 @@
 package com.example.capstone07.ui.speech
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,6 +11,7 @@ import android.media.MediaRecorder
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -22,7 +24,10 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.capstone07.R
+import com.example.capstone07.data.AppDatabase
+import com.example.capstone07.data.ImageCacheDao
 import com.example.capstone07.databinding.FragmentAnalysisBinding
+import com.example.capstone07.model.ImageCacheEntity
 import com.example.capstone07.model.ScriptResponseFragment
 import com.example.capstone07.remote.PresentationStompClient
 import com.example.capstone07.remote.ProgressResponse
@@ -45,9 +50,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.util.concurrent.LinkedBlockingQueue
 
 
@@ -62,6 +71,9 @@ class AnalysisFragment : Fragment() {
 
     // 받아오는 스크립트 정보
     val scripts = arguments?.getParcelableArrayList<ScriptResponseFragment>("scripts")
+
+    // 이미지 캐싱 관련
+    private lateinit var imageCacheDao: ImageCacheDao
 
     // for Google Cloud STT
     private var speechClient: SpeechClient? = null
@@ -151,6 +163,8 @@ class AnalysisFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        imageCacheDao = AppDatabase.getDatabase(requireContext()).imageCacheDao()
+
         // 권한 요청 런처 등록
         requestPermissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestPermission()
@@ -176,6 +190,51 @@ class AnalysisFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        val scripts =
+            arguments?.getParcelableArrayList<ScriptResponseFragment>("scripts")
+                ?: return
+
+        val appContext = requireContext().applicationContext
+
+        clearAllCachedImages(appContext) // 시작하기 전 이미 있는 캐시 이미지들 삭제
+
+        // 이미지 캐싱 완료 전까지 마이크 비활성화
+        binding.imageViewMic.isEnabled = false
+
+        // 이미지 캐싱하는 과정
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+
+            scripts.forEach { script ->
+
+                val id = script.sentenceId
+                val imageUrl = script.image
+
+                val exists = imageCacheDao.exists(id)
+                if (exists) return@forEach
+
+                try {
+                    val bitmap = downloadBitmap(imageUrl)
+                    val hash = bitmapToHash(bitmap)
+                    val path = saveBitmap(appContext, bitmap, id)
+
+                    imageCacheDao.insert(
+                        ImageCacheEntity(
+                            id = id,
+                            hash = hash,
+                            filePath = path
+                        )
+                    )
+
+                } catch (e: Exception) {
+                    Log.e("ImageCache", "이미지 처리 실패: id=$id", e)
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                binding.imageViewMic.isEnabled = true // 이미지 캐싱 완료되면 마이크 버튼 활성화
+            }
+        }
 
         binding.textViewNowspeaking.text = speakingSentence
 
@@ -555,20 +614,7 @@ class AnalysisFragment : Fragment() {
 
     private var lastNextScriptId: Int? = null
 
-    // 진행률 계산 결과 수신했을 때
-//    private fun onProgressReceived(progress: ProgressResponse){
-//        Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
-//        // null이 아니면서 현재와 다른
-//        if (isAdded && progress.nextScriptId != null) {
-//            // 진행률 UI에 표시(임시)
-//            binding.textViewProgress.text = ""
-//            binding.textViewProgress.text = ("다음 문장 id: ${progress.nextScriptId}")
-//
-//            Log.d(TAG, "문장 일치 성공. 버퍼를 깨끗이 비웁니다.")
-//            recognizedSpeechBuffer.setLength(0)
-//        }
-//    }
-
+    // nextScriptId에 대한 정보가 오면 워치로 이미지 보냄.
     private fun onProgressReceived(progress: ProgressResponse) {
         Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
 
@@ -586,114 +632,89 @@ class AnalysisFragment : Fragment() {
         }
         lastNextScriptId = nextIdInt
 
-        val scriptList = arguments?.getParcelableArrayList<ScriptResponseFragment>("scripts")
-        val targetScript = scriptList?.firstOrNull { it.sentenceId == nextIdInt }
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
 
-        System.out.println(targetScript)
+            // 1. DB에서 ID로 이미지 정보 조회
+            val entity = imageCacheDao.getById(nextIdInt)
 
-        if (targetScript != null) {
-
-            // 🔥 여기 추가!!!
-            if (targetScript.image.isNullOrEmpty()) {
-                Log.e(TAG, "이미지 없음 → 워치에 전송 스킵")
-                return
+            if (entity == null) {
+                Log.e(TAG, "❌ DB에 해당 ID 이미지 없음: id=$nextIdInt")
+                return@launch
             }
 
-            Log.d(TAG, "이미지 찾기 성공: ${targetScript.image}")
+            val filePath = entity.filePath
 
-            // suspend 함수이므로 Coroutine에서 호출
-            lifecycleScope.launch {
-                sendImageToWatch(targetScript.image)
+            // 2. 파일 → Bitmap 복원
+            val bitmap = BitmapFactory.decodeFile(filePath)
+
+            if (bitmap == null) {
+                Log.e(TAG, "❌ Bitmap 디코딩 실패: $filePath")
+                return@launch
             }
 
-        } else {
-            Log.w(TAG, "ID=$nextIdInt 스크립트를 찾을 수 없음.")
-        }
-    }
-
-    private val dataClient by lazy { Wearable.getDataClient(requireContext()) }
-
-    // 이미지 관련 함수
-    /*private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
-        try {
-            val url = URL(imageUrl)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.doInput = true
-            connection.connect()
-
-            val input: InputStream = connection.inputStream
-
-            // 1. 그냥 이미지 바이트 배열로 바로 읽기
-            val imageBytes = input.readBytes()
-
-            // 2. Asset 만들기
-            val asset = Asset.createFromBytes(imageBytes)
-
-            // 3. DataItem 생성
-            val request = PutDataMapRequest.create("/image_display").apply {
-                dataMap.putAsset("target_image", asset)
-                dataMap.putLong("timestamp", System.currentTimeMillis())
-            }.asPutDataRequest()
-
-            val response = Tasks.await(dataClient.putDataItem(request))
-            Log.d(TAG, "이미지 전송 성공: $response")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "이미지 다운로드 또는 전송 실패", e)
-        }
-    }*/
-
-    private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
-        try {
-            val url = URL(imageUrl)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.doInput = true
-            connection.connect()
-
-            val input: InputStream = connection.inputStream
-
-            // 🔹 이미지 Bitmap으로 변환
-            val originalBitmap = BitmapFactory.decodeStream(input)
-
-            // 🔹 크기 조정 (너무 크면 Binder 실패)
-            val maxDimension = 400 // 원하는 최대 크기
-            val scaledBitmap = if (originalBitmap.width > maxDimension || originalBitmap.height > maxDimension) {
-                val ratio = originalBitmap.width.toFloat() / originalBitmap.height.toFloat()
-                if (ratio > 1) {
-                    Bitmap.createScaledBitmap(originalBitmap, maxDimension, (maxDimension / ratio).toInt(), true)
-                } else {
-                    Bitmap.createScaledBitmap(originalBitmap, (maxDimension * ratio).toInt(), maxDimension, true)
-                }
-            } else {
-                originalBitmap
-            }
-
-            // 🔹 Asset으로 변환 (PNG 압축)
+            // 3. Bitmap → ByteArray 변환
             val byteStream = ByteArrayOutputStream()
-            scaledBitmap.compress(Bitmap.CompressFormat.PNG, 80, byteStream)
-            val asset = Asset.createFromBytes(byteStream.toByteArray())
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
+            val imageBytes = byteStream.toByteArray()
 
-            // 🔹 DataItem 생성 및 전송
-            val request = PutDataMapRequest.create("/image_display").apply {
-                dataMap.putAsset("target_image", asset)
-                dataMap.putLong("timestamp", System.currentTimeMillis()) // 매번 값 변경
-            }.asPutDataRequest()
-
-            val response = Tasks.await(dataClient.putDataItem(request))
-            Log.d(TAG, "이미지 전송 성공: $response")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "이미지 다운로드 또는 전송 실패", e)
+            // 4. 메인 스레드에서 워치로 전송
+            withContext(Dispatchers.Main) {
+                sendImageToWatch(imageBytes)
+                Log.d(TAG, "✅ 워치로 이미지 전송 완료: id=$nextIdInt")
+            }
         }
     }
 
-    // BitMap을 Asset으로 변환하는 헬퍼 함수
-    private fun createAssetFromBitmap(bitmap: Bitmap): Asset {
-        val byteStream = ByteArrayOutputStream()
-        // 워치에서 JPEG도 지원하지만, PNG가 손실이 적어 가독성이 높을 수 있습니다.
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
-        return Asset.createFromBytes(byteStream.toByteArray())
+    fun sendImageToWatch(imageBytes: ByteArray) {
+        val messageClient = Wearable.getMessageClient(requireContext())
+        val nodeClient = Wearable.getNodeClient(requireContext())
+
+        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+            nodes.forEach { node ->
+                messageClient.sendMessage(
+                    node.id,
+                    "/send_image",
+                    imageBytes
+                )
+            }
+        }
     }
+
+    // url 기반으로 이미지 다운로드 받는 함수
+    suspend fun downloadBitmap(url: String): Bitmap {
+        val connection = URL(url).openConnection()
+        return BitmapFactory.decodeStream(connection.getInputStream())
+    }
+
+    // 비트맵을 해시로 변환
+    fun bitmapToHash(bitmap: Bitmap): String {
+        val buffer = ByteBuffer.allocate(bitmap.byteCount)
+        bitmap.copyPixelsToBuffer(buffer)
+
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(buffer.array())
+
+        return Base64.encodeToString(hashBytes, Base64.NO_WRAP)
+    }
+
+    // 비트맵 저장.
+    fun saveBitmap(context: Context, bitmap: Bitmap, id: Int): String {
+        val file = File(context.filesDir, "img_$id.png")
+        FileOutputStream(file).use {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+        return file.absolutePath
+    }
+
+    fun clearAllCachedImages(context: Context) {
+        context.filesDir.listFiles()?.forEach { file ->
+            if (file.name.startsWith("img_")) {
+                file.delete()
+            }
+        }
+    }
+
+
 
     override fun onDestroyView() {
         super.onDestroyView()
