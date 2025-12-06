@@ -21,4 +21,7 @@ interface ImageCacheDao {
 
     @Delete
     suspend fun delete(entity: ImageCacheEntity)
+
+    @Query("DELETE FROM image_cache")
+    suspend fun clearAll()
 }

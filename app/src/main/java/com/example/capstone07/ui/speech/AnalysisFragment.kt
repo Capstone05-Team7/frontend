@@ -197,23 +197,35 @@ class AnalysisFragment : Fragment() {
 
         val appContext = requireContext().applicationContext
 
-        clearAllCachedImages(appContext) // 시작하기 전 이미 있는 캐시 이미지들 삭제
-
         // 이미지 캐싱 완료 전까지 마이크 비활성화
         binding.imageViewMic.isEnabled = false
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
 
+            withContext(Dispatchers.Main) {
+                binding.progressLoading.visibility = View.VISIBLE
+                binding.imageViewMic.visibility = View.INVISIBLE
+                binding.imageViewMic.isEnabled = false
+            }
+
+            imageCacheDao.clearAll()         // DB 초기화
+            clearAllCachedImages(appContext) // 시작하기 전 이미 있는 캐시 이미지들 삭제
+
             val jobs = scripts.map { script ->
                 launch {
                     val id = script.sentenceId
                     val imageUrl = script.image
+                    Log.d("Image", "이미지 경로:, path=$imageUrl")
 
-                    if (imageCacheDao.exists(id)) return@launch
+                    if (imageCacheDao.exists(id)) {
+                        Log.w("ImageCache", "⏭️ 이미 DB에 존재해서 스킵됨: id=$id")
+                        return@launch
+                    }
 
                     try {
                         val bitmap = downloadBitmap(imageUrl)
                         val path = saveBitmap(appContext, bitmap, id)
+                        Log.d("ImageCache", "📂 파일 저장 완료: id=$id, path=$path")
 
                         imageCacheDao.insert(
                             ImageCacheEntity(
@@ -232,7 +244,13 @@ class AnalysisFragment : Fragment() {
             jobs.forEach { it.join() }
 
             withContext(Dispatchers.Main) {
+                binding.progressLoading.visibility = View.GONE
+                binding.imageViewMic.visibility = View.VISIBLE
                 binding.imageViewMic.isEnabled = true
+
+                // 웹소켓 클라이언트 초기화 및 연결
+                stompClient = PresentationStompClient(PRESENTATION_ID, ::onHintReceived, ::onProgressReceived)
+                stompClient.connect()
             }
         }
 
@@ -242,10 +260,6 @@ class AnalysisFragment : Fragment() {
         Thread {
             setupStreamingSTT()
         }.start()
-
-        // 웹소켓 클라이언트 초기화 및 연결
-        stompClient = PresentationStompClient(PRESENTATION_ID, ::onHintReceived, ::onProgressReceived)
-        stompClient.connect()
 
         // 처음엔 중단 버튼 숨기기
         binding.imageViewStop.visibility = View.GONE
@@ -659,7 +673,7 @@ class AnalysisFragment : Fragment() {
 
             // 3. Bitmap → ByteArray 변환
             val byteStream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteStream)
             val imageBytes = byteStream.toByteArray()
 
             // 4. 메인 스레드에서 워치로 전송
@@ -671,32 +685,51 @@ class AnalysisFragment : Fragment() {
     }
 
     fun sendImageToWatch(imageBytes: ByteArray) {
-        val messageClient = Wearable.getMessageClient(requireContext())
-        val nodeClient = Wearable.getNodeClient(requireContext())
+        val asset = Asset.createFromBytes(imageBytes)
 
-        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
-            nodes.forEach { node ->
-                messageClient.sendMessage(
-                    node.id,
-                    "/send_image",
-                    imageBytes
-                )
-            }
-        }
+        val request = PutDataMapRequest.create("/image_display").apply {
+            dataMap.putAsset("target_image", asset)
+            dataMap.putLong("time", System.currentTimeMillis()) // 변경 트리거
+        }.asPutDataRequest()
+
+        Wearable.getDataClient(requireContext()).putDataItem(request)
     }
 
     // url 기반으로 이미지 다운로드 받는 함수
     suspend fun downloadBitmap(url: String): Bitmap {
-        val connection = URL(url).openConnection()
-        return BitmapFactory.decodeStream(connection.getInputStream())
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 100000
+        connection.readTimeout = 100000
+        connection.doInput = true
+        connection.connect()
+
+        val inputStream = connection.inputStream
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream.close()
+
+        if (bitmap == null) {
+            throw IllegalStateException("❌ Bitmap decode 실패: $url")
+        }
+
+        return bitmap
     }
 
     // 비트맵 저장.
     fun saveBitmap(context: Context, bitmap: Bitmap, id: Int): String {
-        val file = File(context.filesDir, "img_$id.png")
-        FileOutputStream(file).use {
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+        val file = File(context.filesDir, "img_$id.jpg")
+
+        FileOutputStream(file).use { fos ->
+            val success = bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fos)
+            if (!success) {
+                throw IllegalStateException("❌ Bitmap compress 실패: id=$id")
+            }
         }
+
+        if (!file.exists() || file.length() == 0L) {
+            throw IllegalStateException("❌ 파일 저장 실패: id=$id")
+        }
+
+        Log.d("ImageCache", "✅ 실제 파일 저장 성공: ${file.absolutePath} (${file.length()} bytes)")
         return file.absolutePath
     }
 
