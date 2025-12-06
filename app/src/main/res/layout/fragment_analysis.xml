@@ -54,6 +54,16 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
+        <ProgressBar
+            android:id="@+id/progressLoading"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:visibility="gone"
+            app:layout_constraintTop_toTopOf="@id/imageView_mic"
+            app:layout_constraintBottom_toBottomOf="@id/imageView_mic"
+            app:layout_constraintStart_toStartOf="@id/imageView_mic"
+            app:layout_constraintEnd_toEndOf="@id/imageView_mic"/>
+
         <TextView
             android:id="@+id/textView_status"
             android:layout_width="0dp"
