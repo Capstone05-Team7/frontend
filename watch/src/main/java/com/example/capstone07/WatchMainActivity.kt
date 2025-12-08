@@ -47,81 +47,61 @@ const val TAG = "WatchImageReceiver"
 
 class WatchImageReceiverService : WearableListenerService() {
 
-    // ViewModel 인스턴스를 서비스와 UI가 공유하기 위한 변수
     companion object {
         var staticViewModel: ImageViewModel? = null
-        private var pendingBitmap: Bitmap? = null // 이미지를 임시 저장할 변수
+        private var pendingBitmap: Bitmap? = null
 
         fun updateViewModel(vm: ImageViewModel) {
             staticViewModel = vm
             Log.d(TAG, "ViewModel 참조 설정됨.")
 
-            // ViewModel이 연결될 때, 보류 중인 이미지가 있는지 확인
             pendingBitmap?.let {
                 vm.setBitmap(it)
-                pendingBitmap = null // 전달 후 캐시 지우기
+                pendingBitmap = null
                 Log.d(TAG, "보류 중이던 이미지를 ViewModel에 전달했습니다.")
             }
         }
     }
 
-    // 서비스에서 사용할 독립적인 Coroutine Scope
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    override fun onMessageReceived(messageEvent: MessageEvent) {
+        if (messageEvent.path != IMAGE_PATH) return
 
-    override fun onDataChanged(dataEvents: DataEventBuffer) {
-        dataEvents.forEach { event ->
-            if (event.type == DataEvent.TYPE_CHANGED) {
-                val dataItem = event.dataItem
-                if (dataItem.uri.path == IMAGE_PATH) {
-                    val dataMap = DataMapItem.fromDataItem(dataItem).dataMap
-                    val asset = dataMap.getAsset(IMAGE_KEY)
+        Log.d(TAG, "✅ MessageClient 이미지 수신")
 
-                    if (asset != null) {
-                        Log.d(TAG, "이미지 Asset 수신됨. 로드 시작.")
-                        loadBitmapFromAsset(asset)
-                    } else {
-                        Log.w(TAG, "Asset이 null입니다.")
-                    }
-                }
-            }
-        }
-    }
+        val bytes = messageEvent.data
 
-    private fun loadBitmapFromAsset(asset: Asset) {
-        serviceScope.launch(Dispatchers.IO) {
-            var inputStream: InputStream? = null
+        CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = Wearable.getDataClient(this@WatchImageReceiverService)
-                    .getFdForAsset(asset)
-                    .await()
+                val options = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                    // ✅ 표시 크기 유지
+                    // ✅ 메모리 50% 절감
+                }
 
-                inputStream = response.inputStream
+                val rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
 
-                val bitmap = BitmapFactory.decodeStream(inputStream)
+                if (rawBitmap == null) {
+                    Log.e(TAG, "❌ Bitmap 디코딩 실패")
+                    return@launch
+                }
+
+                val safeBitmap = rawBitmap.copy(Bitmap.Config.RGB_565, false)
 
                 withContext(Dispatchers.Main) {
                     val vm = staticViewModel
                     if (vm != null) {
-                        // ViewModel이 연결되어 있으면 즉시 업데이트
-                        vm.setBitmap(bitmap)
-                        Log.d(TAG, "이미지 로드 및 ViewModel 업데이트 성공.")
+                        vm.setBitmap(safeBitmap)
+                        Log.d(TAG, "✅ ViewModel 이미지 업데이트 완료")
                     } else {
-                        // ViewModel이 아직 없으면 이미지를 보류
-                        pendingBitmap = bitmap
-                        Log.e(TAG, "ViewModel이 없어 이미지를 보류합니다.")
+                        pendingBitmap = safeBitmap
+                        Log.e(TAG, "⚠️ ViewModel이 없어 이미지 보류")
                     }
                 }
+
             } catch (e: Exception) {
-                Log.e(TAG, "Asset에서 이미지 로드 실패", e)
-            } finally {
-                inputStream?.close()
+                Log.e(TAG, "❌ MessageClient 이미지 처리 실패", e)
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        serviceScope.cancel() // 서비스 종료 시 코루틴 취소
     }
 }
 
@@ -178,6 +158,8 @@ class WatchMainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         setTheme(android.R.style.Theme_DeviceDefault)
+
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
             // ViewModel 인스턴스를 얻습니다.

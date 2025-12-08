@@ -685,14 +685,38 @@ class AnalysisFragment : Fragment() {
     }
 
     fun sendImageToWatch(imageBytes: ByteArray) {
-        val asset = Asset.createFromBytes(imageBytes)
+        val path = "/image_display"
 
-        val request = PutDataMapRequest.create("/image_display").apply {
-            dataMap.putAsset("target_image", asset)
-            dataMap.putLong("time", System.currentTimeMillis()) // 변경 트리거
-        }.asPutDataRequest()
+        val nodeClient = Wearable.getNodeClient(requireContext())
+        val messageClient = Wearable.getMessageClient(requireContext())
 
-        Wearable.getDataClient(requireContext()).putDataItem(request)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // 연결된 모든 워치 노드 가져오기
+                val nodes = Tasks.await(nodeClient.connectedNodes)
+
+                if (nodes.isEmpty()) {
+                    Log.e(TAG, "❌ 연결된 워치 노드 없음")
+                    return@launch
+                }
+
+                // 모든 워치로 이미지 전송
+                for (node in nodes) {
+                    Tasks.await(
+                        messageClient.sendMessage(
+                            node.id,
+                            path,
+                            imageBytes
+                        )
+                    )
+
+                    Log.d(TAG, "✅ MessageClient 이미지 전송 성공 → nodeId=${node.id}")
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ MessageClient 이미지 전송 실패", e)
+            }
+        }
     }
 
     // url 기반으로 이미지 다운로드 받는 함수
