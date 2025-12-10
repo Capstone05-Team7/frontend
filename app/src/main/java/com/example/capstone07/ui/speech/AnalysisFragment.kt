@@ -144,6 +144,10 @@ class AnalysisFragment : Fragment() {
     private val accumulatedScript = StringBuilder()
 
 
+    // [성능 측정용] 백엔드로 요청을 보낸 시각 저장
+    private var backendRequestTime = 0L
+
+
 
     /**
      * ---------메소드들-----------
@@ -197,6 +201,11 @@ class AnalysisFragment : Fragment() {
                 // 권한 확인 후 STT 시작
                 checkMicrophonePermissionAndStartSTT()
             }
+        }
+
+        // 로그용 버튼 클릭 처리
+        binding.imageViewTimeLog.setOnClickListener {
+            Log.d("!!--성능 개선--!!", "0. [발화 완료] 특정 문장 발화 완료")
         }
 
         // 중단 버튼 클릭 처리
@@ -278,6 +287,9 @@ class AnalysisFragment : Fragment() {
             // UI 스레드로 전환하여 작업
             activity?.runOnUiThread {
                 if (result.isFinal) {
+                    // [1. STT 응답 수신]
+                    Log.d("!!--성능 개선--!!", "1. [STT 완료] 텍스트 변환됨: $transcript")
+
                     // --- '최종' 결과 (onResults와 유사) ---
                     Log.d(TAG, "[최종] $transcript")
 
@@ -285,6 +297,10 @@ class AnalysisFragment : Fragment() {
                     recognizedSpeechBuffer.append(transcript).append(" ")
                     //trimSpeechBufferIfNeeded()  // 버퍼 관리
                     val textToSend = recognizedSpeechBuffer.toString().trim()
+
+                    // [2. 백엔드 전송 시작]
+                    backendRequestTime = System.currentTimeMillis()
+                    Log.d("!!--성능 개선--!!", "2. [백엔드 요청] STT 텍스트 전송 시작")
 
                     stompClient.sendSttTextForProgress(speakingId, speakingSentence, textToSend)
 
@@ -570,7 +586,16 @@ class AnalysisFragment : Fragment() {
 //    }
 
     private fun onProgressReceived(progress: ProgressResponse) {
+        // [3. 백엔드 응답 수신] (백엔드+모델 처리 총 소요 시간)
+        val responseTime = System.currentTimeMillis()
+        if (backendRequestTime > 0) {
+            Log.d("!!--성능 개선--!!", "3. [백엔드 응답] 소요시간(RTT): ${responseTime - backendRequestTime}ms (모델 API 포함)")
+        }
+
         Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
+
+        // [4. 이미지 URL 탐색 시작]
+        val searchStartTime = System.currentTimeMillis()
 
         val nextId = progress.nextScriptId ?: return
 
@@ -592,6 +617,8 @@ class AnalysisFragment : Fragment() {
         System.out.println(targetScript)
 
         if (targetScript != null) {
+            // [4. 이미지 URL 탐색 완료]
+            Log.d("!!--성능 개선--!!", "4. [이미지 탐색] URL 찾기 소요: ${System.currentTimeMillis() - searchStartTime}ms")
 
             // 🔥 여기 추가!!!
             if (targetScript.image.isNullOrEmpty()) {
@@ -645,6 +672,11 @@ class AnalysisFragment : Fragment() {
 
     private suspend fun sendImageToWatch(imageUrl: String) = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "이미지 비트화 시작: $imageUrl")
+
+            // [측정 A] 다운로드 시작
+            val startDownload = System.currentTimeMillis()
+
             val url = URL(imageUrl)
             val connection = url.openConnection() as HttpURLConnection
             connection.doInput = true
@@ -654,6 +686,10 @@ class AnalysisFragment : Fragment() {
 
             // 🔹 이미지 Bitmap으로 변환
             val originalBitmap = BitmapFactory.decodeStream(input)
+
+            // [측정 A] 다운로드 완료
+            val endDownload = System.currentTimeMillis()
+            Log.d("!!--성능 개선--!!", "5. [이미지 다운로드] 소요: ${endDownload - startDownload}ms")
 
             // 🔹 크기 조정 (너무 크면 Binder 실패)
             val maxDimension = 400 // 원하는 최대 크기
@@ -673,6 +709,10 @@ class AnalysisFragment : Fragment() {
             scaledBitmap.compress(Bitmap.CompressFormat.PNG, 80, byteStream)
             val asset = Asset.createFromBytes(byteStream.toByteArray())
 
+            // [측정 B] 이미지 가공 완료
+            val endProcess = System.currentTimeMillis()
+            Log.d("!!--성능 개선--!!", "6. [이미지 변환(Resize/Compress)] 소요: ${endProcess - endDownload}ms")
+
             // 🔹 DataItem 생성 및 전송
             val request = PutDataMapRequest.create("/image_display").apply {
                 dataMap.putAsset("target_image", asset)
@@ -680,8 +720,12 @@ class AnalysisFragment : Fragment() {
             }.asPutDataRequest()
 
             val response = Tasks.await(dataClient.putDataItem(request))
-            Log.d(TAG, "이미지 전송 성공: $response")
 
+            // [측정 C] 워치 전송 완료
+            val endSend = System.currentTimeMillis()
+            Log.d("!!--성능 개선--!!", "7. [워치 전송(Bluetooth)] 소요: ${endSend - endProcess}ms")
+
+            Log.d(TAG, "이미지 전송 성공: $response")
         } catch (e: Exception) {
             Log.e(TAG, "이미지 다운로드 또는 전송 실패", e)
         }
