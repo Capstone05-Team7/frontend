@@ -275,6 +275,9 @@ class AnalysisFragment : Fragment() {
             if (!isListening) {
                 // 권한 확인 후 STT 시작
                 checkMicrophonePermissionAndStartSTT()
+
+                // 발표 시작하자마자 1번 이미지 바로 전송
+                sendFirstImageToWatchImmediately()
             }
         }
 
@@ -381,7 +384,7 @@ class AnalysisFragment : Fragment() {
                     // 잡음 필터링 해서 STT 전송
                     if (isMeaningfulSpeech(transcript)) {
                         stompClient.sendSttText(transcript) // STT 전송
-                        //stompClient.sendSttTextForProgress(speakingId, speakingSentence, transcript) // 진행률 계산
+                        stompClient.sendSttTextForProgress(speakingId, speakingSentence, transcript) // 진행률 계산
                     }
                 }
             }
@@ -712,39 +715,58 @@ class AnalysisFragment : Fragment() {
     }
 
     fun sendImageToWatch(imageBytes: ByteArray) {
-        val path = "/image_display"
+        // ⭐️ [측정 5 시작] 워치 전송 시작
+        val startSend = System.currentTimeMillis()
 
-        val nodeClient = Wearable.getNodeClient(requireContext())
-        val messageClient = Wearable.getMessageClient(requireContext())
+        val asset = Asset.createFromBytes(imageBytes)
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                // 연결된 모든 워치 노드 가져오기
-                val nodes = Tasks.await(nodeClient.connectedNodes)
+        val request = PutDataMapRequest.create("/image_display").apply {
+            dataMap.putAsset("target_image", asset)
+            dataMap.putLong("time", System.currentTimeMillis()) // 변경 트리거
+        }.asPutDataRequest()
 
-                if (nodes.isEmpty()) {
-                    Log.e(TAG, "❌ 연결된 워치 노드 없음")
-                    return@launch
-                }
+        // ⭐️ [측정 5 완료] 리스너 달아서 측정
+        Wearable.getDataClient(requireContext()).putDataItem(request)
+            .addOnSuccessListener {
+                val endSend = System.currentTimeMillis()
+                Log.d("!!--성능 개선--!!", "5. [워치 전송(Bluetooth)] 소요: ${endSend - startSend}ms")
+            }
+            .addOnFailureListener { e ->
+                Log.e("!!--성능 개선--!!", "워치 전송 실패", e)
+            }
+    }
 
-                // 모든 워치로 이미지 전송
-                for (node in nodes) {
-                    Tasks.await(
-                        messageClient.sendMessage(
-                            node.id,
-                            path,
-                            imageBytes
-                        )
-                    )
+    // 첫번째 이미지 워치로 보낼 때 사용
+    private fun sendFirstImageToWatchImmediately() {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
 
-                    Log.d(TAG, "✅ MessageClient 이미지 전송 성공 → nodeId=${node.id}")
-                }
+            val entity = imageCacheDao.getByProjectAndSentence(
+                PRESENTATION_ID.toInt(),
+                1   // 첫 번째 이미지 ID 고정
+            )
 
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ MessageClient 이미지 전송 실패", e)
+            if (entity == null) {
+                Log.e(TAG, "❌ 1번 이미지 없음 (발표 시작 시)")
+                return@launch
+            }
+
+            val bitmap = BitmapFactory.decodeFile(entity.filePath)
+            if (bitmap == null) {
+                Log.e(TAG, "❌ 1번 이미지 Bitmap 디코딩 실패")
+                return@launch
+            }
+
+            val byteStream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteStream)
+            val imageBytes = byteStream.toByteArray()
+
+            withContext(Dispatchers.Main) {
+                sendImageToWatch(imageBytes)
+                Log.d(TAG, "✅ 발표 시작 → 1번 이미지 워치 전송 완료")
             }
         }
     }
+
 
     // url 기반으로 이미지 다운로드 받는 함수
     fun downloadBitmap(url: String): Bitmap {
