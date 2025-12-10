@@ -5,7 +5,8 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "image_cache")
 data class ImageCacheEntity(
-    @PrimaryKey val id: Int,
-    val hash: String,
-    val filePath: String
+    @PrimaryKey(autoGenerate = true) val id: Int = 1,
+    val projectId: Int,
+    val sentenceId: Int,
+    val filePath: String // bitmap에 대한 path
 )
