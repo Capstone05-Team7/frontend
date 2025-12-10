@@ -155,7 +155,8 @@ class AnalysisFragment : Fragment() {
     // 문장 조각을 모으는 변수
     private val accumulatedScript = StringBuilder()
 
-
+    // ⭐️ [성능 측정용] 백엔드로 요청을 보낸 시각 저장
+    private var backendRequestTime = 0L
 
     /**
      * ---------메소드들-----------
@@ -356,6 +357,9 @@ class AnalysisFragment : Fragment() {
             // UI 스레드로 전환하여 작업
             activity?.runOnUiThread {
                 if (result.isFinal) {
+                    // ⭐️ [측정 1] STT 완료
+                    Log.d("!!--성능 개선--!!", "1. [STT 완료] 텍스트 변환됨: $transcript")
+
                     // --- '최종' 결과 (onResults와 유사) ---
                     Log.d(TAG, "[최종] $transcript")
 
@@ -363,6 +367,10 @@ class AnalysisFragment : Fragment() {
                     recognizedSpeechBuffer.append(transcript).append(" ")
                     //trimSpeechBufferIfNeeded()  // 버퍼 관리
                     val textToSend = recognizedSpeechBuffer.toString().trim()
+
+                    // ⭐️ [측정 2] 백엔드 요청 시작
+                    backendRequestTime = System.currentTimeMillis()
+                    Log.d("!!--성능 개선--!!", "2. [백엔드 요청] STT 텍스트 전송 시작")
 
                     stompClient.sendSttTextForProgress(speakingId, speakingSentence, textToSend)
 
@@ -635,6 +643,13 @@ class AnalysisFragment : Fragment() {
 
     // nextScriptId에 대한 정보가 오면 워치로 이미지 보냄.
     private fun onProgressReceived(progress: ProgressResponse) {
+
+        // ⭐️ [측정 3] 백엔드 응답 도착 (RTT)
+        val responseTime = System.currentTimeMillis()
+        if (backendRequestTime > 0) {
+            Log.d("!!--성능 개선--!!", "3. [백엔드 응답] 소요시간(RTT): ${responseTime - backendRequestTime}ms (모델 API 포함)")
+        }
+
         Log.d(TAG, "서버에서 진행률 계산 결과 수신: ${progress.nextScriptId}")
 
         val nextId = progress.nextScriptId ?: return
@@ -652,6 +667,9 @@ class AnalysisFragment : Fragment() {
         lastNextScriptId = nextIdInt
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+
+            // ⭐️ [측정 4 시작] 디스크 로드 시작
+            val startDiskLoad = System.currentTimeMillis()
 
             // 1. DB에서 ID로 이미지 정보 조회
             val entity = imageCacheDao.getByProjectAndSentence(PRESENTATION_ID.toInt(),nextIdInt)
@@ -680,6 +698,10 @@ class AnalysisFragment : Fragment() {
             val byteStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteStream)
             val imageBytes = byteStream.toByteArray()
+
+            // ⭐️ [측정 4 완료] 디스크 로드 끝 (이게 3.8초 -> 0.05초가 되어야 함)
+            val endDiskLoad = System.currentTimeMillis()
+            Log.d("!!--성능 개선--!!", "4. [이미지 로드(Disk)] DB조회+파일읽기 소요: ${endDiskLoad - startDiskLoad}ms")
 
             // 4. 메인 스레드에서 워치로 전송
             withContext(Dispatchers.Main) {
