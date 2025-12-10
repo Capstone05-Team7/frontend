@@ -95,7 +95,7 @@ class AnalysisFragment : Fragment() {
     // 웹소켓 클라이언트 객체
     private lateinit var stompClient: PresentationStompClient
     // 발표 ID (아마 projectId를 쓸 것 같은데, 특정 프로젝트 조회 api가 없어서 테스트를 위해 하드코딩)
-    private val PRESENTATION_ID = "1"
+    private var PRESENTATION_ID: String = "1"
 
     private val TAG = "AnalysisFragment"
 
@@ -192,6 +192,11 @@ class AnalysisFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        PRESENTATION_ID = arguments
+            ?.getInt("projectId")
+            ?.toString()
+            ?: "1"
+
         val scripts =
             arguments?.getParcelableArrayList<ScriptResponseFragment>("scripts")
                 ?: return
@@ -209,29 +214,29 @@ class AnalysisFragment : Fragment() {
                 binding.imageViewMic.isEnabled = false
             }
 
-            imageCacheDao.clearAll()         // DB 초기화
-            clearAllCachedImages(appContext) // 시작하기 전 이미 있는 캐시 이미지들 삭제
+            // imageCacheDao.clearAll()         // DB 초기화
+            // clearAllCachedImages(appContext) // 시작하기 전 이미 있는 캐시 이미지들 삭제
 
             val jobs = scripts.map { script ->
                 launch {
-                    val id = script.sentenceId
+                    val sentenceId = script.sentenceId
                     val imageUrl = script.image
                     Log.d("Image", "이미지 경로:, path=$imageUrl")
 
-                    if (imageCacheDao.exists(id)) {
-                        Log.w("ImageCache", "⏭️ 이미 DB에 존재해서 스킵됨: id=$id")
+                    if (imageCacheDao.exists(PRESENTATION_ID.toInt(), sentenceId)) {
+                        Log.w("ImageCache", "⏭️ 이미 DB에 존재해서 스킵됨: id=$sentenceId")
                         return@launch
                     }
 
                     try {
                         val bitmap = downloadBitmap(imageUrl)
-                        val path = saveBitmap(appContext, bitmap, id)
-                        Log.d("ImageCache", "📂 파일 저장 완료: id=$id, path=$path")
+                        val path = saveBitmap(appContext, bitmap, PRESENTATION_ID.toInt(), sentenceId)
+                        Log.d("ImageCache", "📂 파일 저장 완료: id=$sentenceId, path=$path")
 
                         imageCacheDao.insert(
                             ImageCacheEntity(
-                                id = id,
-                                hash = "",
+                                projectId = PRESENTATION_ID.toInt(),
+                                sentenceId = sentenceId,
                                 filePath = path
                             )
                         )
@@ -686,7 +691,7 @@ class AnalysisFragment : Fragment() {
             val startDiskLoad = System.currentTimeMillis()
 
             // 1. DB에서 ID로 이미지 정보 조회
-            val entity = imageCacheDao.getById(nextIdInt)
+            val entity = imageCacheDao.getByProjectAndSentence(PRESENTATION_ID.toInt(),nextIdInt)
 
             if (entity == null) {
                 Log.e(TAG, "❌ DB에 해당 ID 이미지 없음: id=$nextIdInt")
@@ -752,7 +757,7 @@ class AnalysisFragment : Fragment() {
     }
 
     // url 기반으로 이미지 다운로드 받는 함수
-    suspend fun downloadBitmap(url: String): Bitmap {
+    fun downloadBitmap(url: String): Bitmap {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 100000
         connection.readTimeout = 100000
@@ -771,18 +776,18 @@ class AnalysisFragment : Fragment() {
     }
 
     // 비트맵 저장.
-    fun saveBitmap(context: Context, bitmap: Bitmap, id: Int): String {
-        val file = File(context.filesDir, "img_$id.jpg")
+    fun saveBitmap(context: Context, bitmap: Bitmap, projectId: Int, sentenceId: Int): String {
+        val file = File(context.filesDir, "img_$projectId-$sentenceId.jpg")
 
         FileOutputStream(file).use { fos ->
             val success = bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fos)
             if (!success) {
-                throw IllegalStateException("❌ Bitmap compress 실패: id=$id")
+                throw IllegalStateException("❌ Bitmap compress 실패: id=$sentenceId")
             }
         }
 
         if (!file.exists() || file.length() == 0L) {
-            throw IllegalStateException("❌ 파일 저장 실패: id=$id")
+            throw IllegalStateException("❌ 파일 저장 실패: id=$sentenceId")
         }
 
         Log.d("ImageCache", "✅ 실제 파일 저장 성공: ${file.absolutePath} (${file.length()} bytes)")

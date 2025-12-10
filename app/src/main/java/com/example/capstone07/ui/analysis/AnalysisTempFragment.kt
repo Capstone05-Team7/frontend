@@ -87,6 +87,7 @@ class AnalysisTempFragment : Fragment() {
             val fragment = AnalysisFragment()
             val bundle = Bundle().apply {
                 putParcelableArrayList("scripts", ArrayList(scripts))
+                putInt("projectId", projectId)
             }
             fragment.arguments = bundle
 
