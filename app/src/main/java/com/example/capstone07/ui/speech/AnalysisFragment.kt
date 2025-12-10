@@ -275,6 +275,9 @@ class AnalysisFragment : Fragment() {
             if (!isListening) {
                 // 권한 확인 후 STT 시작
                 checkMicrophonePermissionAndStartSTT()
+
+                // 발표 시작하자마자 1번 이미지 바로 전송
+                sendFirstImageToWatchImmediately()
             }
         }
 
@@ -755,6 +758,38 @@ class AnalysisFragment : Fragment() {
                 Log.e("!!--성능 개선--!!", "워치 전송 실패", e)
             }
     }
+
+    // 첫번째 이미지 워치로 보낼 때 사용
+    private fun sendFirstImageToWatchImmediately() {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+
+            val entity = imageCacheDao.getByProjectAndSentence(
+                PRESENTATION_ID.toInt(),
+                1   // 첫 번째 이미지 ID 고정
+            )
+
+            if (entity == null) {
+                Log.e(TAG, "❌ 1번 이미지 없음 (발표 시작 시)")
+                return@launch
+            }
+
+            val bitmap = BitmapFactory.decodeFile(entity.filePath)
+            if (bitmap == null) {
+                Log.e(TAG, "❌ 1번 이미지 Bitmap 디코딩 실패")
+                return@launch
+            }
+
+            val byteStream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteStream)
+            val imageBytes = byteStream.toByteArray()
+
+            withContext(Dispatchers.Main) {
+                sendImageToWatch(imageBytes)
+                Log.d(TAG, "✅ 발표 시작 → 1번 이미지 워치 전송 완료")
+            }
+        }
+    }
+
 
     // url 기반으로 이미지 다운로드 받는 함수
     fun downloadBitmap(url: String): Bitmap {
