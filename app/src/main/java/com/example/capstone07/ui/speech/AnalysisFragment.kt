@@ -208,6 +208,11 @@ class AnalysisFragment : Fragment() {
             Log.d("!!--성능 개선--!!", "0. [발화 완료] 특정 문장 발화 완료")
         }
 
+        // 로그용 버튼 클릭 처리(워치 이미지 로딩 완료)
+        binding.imageViewCheck.setOnClickListener {
+            Log.d("!!--성능 개선--!!", "8. [워치 로딩 완료] 워치에 이미지 로딩 완료")
+        }
+
         // 중단 버튼 클릭 처리
         binding.imageViewStop.setOnClickListener {
             stopStreamingAudio()    // STT 중단
