@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("kotlin-parcelize")
+    id("kotlin-kapt")
 }
 
 android {
@@ -98,7 +99,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3") // 최신 버전 확인
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2") // 최신 버전 확인
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2") // 필요할 수 있음
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     //이미지용 glide
     implementation("com.github.bumptech.glide:glide:4.16.0")
+
+    implementation("androidx.room:room-runtime:2.7.0")
+    kapt("androidx.room:room-compiler:2.7.0")
+    implementation("androidx.room:room-ktx:2.7.0")
 }
