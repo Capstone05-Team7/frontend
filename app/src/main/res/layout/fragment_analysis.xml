@@ -99,6 +99,28 @@
             android:src="@drawable/ic_stop"
             app:layout_constraintVertical_bias="0.4"
             app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/imageView_time_log"
+            app:layout_constraintTop_toBottomOf="@+id/textView_result"
+            android:layout_marginTop="20dp"/>
+
+        <ImageView
+            android:id="@+id/imageView_time_log"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:src="@drawable/ic_time_log"
+            app:layout_constraintVertical_bias="0.4"
+            app:layout_constraintStart_toEndOf="@+id/imageView_stop"
+            app:layout_constraintEnd_toStartOf="@+id/imageView_check"
+            app:layout_constraintTop_toBottomOf="@+id/textView_result"
+            android:layout_marginTop="20dp"/>
+
+        <ImageView
+            android:id="@+id/imageView_check"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:src="@drawable/ic_checko"
+            app:layout_constraintVertical_bias="0.4"
+            app:layout_constraintStart_toEndOf="@+id/imageView_time_log"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textView_result"
             android:layout_marginTop="20dp"/>

@@ -281,6 +281,16 @@ class AnalysisFragment : Fragment() {
             }
         }
 
+        // 로그용 버튼 클릭 처리
+        binding.imageViewTimeLog.setOnClickListener {
+            Log.d("!!--성능 개선--!!", "0. [발화 완료] 특정 문장 발화 완료")
+        }
+
+        // 로그용 버튼 클릭 처리(워치 이미지 로딩 완료)
+        binding.imageViewCheck.setOnClickListener {
+            Log.d("!!--성능 개선--!!", "8. [워치 로딩 완료] 워치에 이미지 로딩 완료")
+        }
+
         // 중단 버튼 클릭 처리
         binding.imageViewStop.setOnClickListener {
             stopStreamingAudio()    // STT 중단
@@ -383,7 +393,16 @@ class AnalysisFragment : Fragment() {
 
                     // 잡음 필터링 해서 STT 전송
                     if (isMeaningfulSpeech(transcript)) {
+                        // ⭐️ [측정 1] STT 완료
+                        Log.d("!!--성능 개선--!!", "1. [STT 완료] 텍스트 변환됨: $transcript")
                         stompClient.sendSttText(transcript) // STT 전송
+
+                        // --- '최종' 결과 (onResults와 유사) ---
+                        Log.d(TAG, "[최종] $transcript")
+
+                        backendRequestTime = System.currentTimeMillis()
+                        Log.d("!!--성능 개선--!!", "2. [백엔드 요청] STT 텍스트 전송 시작")
+
                         stompClient.sendSttTextForProgress(speakingId, speakingSentence, transcript) // 진행률 계산
                     }
                 }
@@ -649,7 +668,7 @@ class AnalysisFragment : Fragment() {
 
         // ⭐️ [측정 3] 백엔드 응답 도착 (RTT)
         val responseTime = System.currentTimeMillis()
-        if (backendRequestTime > 0) {
+        if (backendRequestTime > 0 && progress.nextScriptId != null) {
             Log.d("!!--성능 개선--!!", "3. [백엔드 응답] 소요시간(RTT): ${responseTime - backendRequestTime}ms (모델 API 포함)")
         }
 
@@ -671,7 +690,7 @@ class AnalysisFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
 
-            // ⭐️ [측정 4 시작] 디스크 로드 시작
+            // ⭐️ [측정 4, 5 시작] 디스크 로드 시작
             val startDiskLoad = System.currentTimeMillis()
 
             // 1. DB에서 ID로 이미지 정보 조회
@@ -697,15 +716,19 @@ class AnalysisFragment : Fragment() {
                 return@launch
             }
 
+            // ⭐️ [측정 4, 5 중간] 순수 디스크 읽기 시간
+            val midDiskLoad = System.currentTimeMillis()
+
             // 3. Bitmap → ByteArray 변환
             val byteStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteStream)
             val imageBytes = byteStream.toByteArray()
 
-            // ⭐️ [측정 4 완료] 디스크 로드 끝 (이게 3.8초 -> 0.05초가 되어야 함)
+            // ⭐️ [측정 4, 5 완료] 디스크 로드 끝
             val endDiskLoad = System.currentTimeMillis()
-            Log.d("!!--성능 개선--!!", "4. [이미지 로드(Disk)] DB조회+파일읽기 소요: ${endDiskLoad - startDiskLoad}ms")
-
+            // 로그 분리: 디스크 읽기 vs 이미지 변환(압축)
+            Log.d("!!--성능 개선--!!", "4, 5. [이미지 로딩] 읽기: ${midDiskLoad - startDiskLoad}ms")
+            Log.d("!!--성능 개선--!!", "6. [이미지 변환]: ${endDiskLoad - midDiskLoad}ms")
             // 4. 메인 스레드에서 워치로 전송
             withContext(Dispatchers.Main) {
                 sendImageToWatch(imageBytes)
@@ -729,7 +752,7 @@ class AnalysisFragment : Fragment() {
         Wearable.getDataClient(requireContext()).putDataItem(request)
             .addOnSuccessListener {
                 val endSend = System.currentTimeMillis()
-                Log.d("!!--성능 개선--!!", "5. [워치 전송(Bluetooth)] 소요: ${endSend - startSend}ms")
+                Log.d("!!--성능 개선--!!", "7. [워치 전송(Bluetooth)] 소요: ${endSend - startSend}ms")
             }
             .addOnFailureListener { e ->
                 Log.e("!!--성능 개선--!!", "워치 전송 실패", e)
