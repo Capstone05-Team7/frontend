@@ -158,6 +158,8 @@ class AnalysisFragment : Fragment() {
     // ⭐️ [성능 측정용] 백엔드로 요청을 보낸 시각 저장
     private var backendRequestTime = 0L
 
+    private var lastSentBufferLength = 0 // 백엔드로 마지막에 보낸 텍스트의 길이 저장 - 버퍼 관리용
+
     /**
      * ---------메소드들-----------
      */
@@ -379,7 +381,11 @@ class AnalysisFragment : Fragment() {
                     // 버퍼 누적 및 진행률 계산
                     recognizedSpeechBuffer.append(transcript).append(" ")
                     //trimSpeechBufferIfNeeded()  // 버퍼 관리
+
                     val textToSend = recognizedSpeechBuffer.toString().trim()
+
+                    // 백엔드로 보내기 직전, 현재 버퍼의 길이를 "스냅샷" 찍어둠
+                    lastSentBufferLength = recognizedSpeechBuffer.length
 
                     // ⭐️ [측정 2] 백엔드 요청 시작
                     backendRequestTime = System.currentTimeMillis()
@@ -718,6 +724,18 @@ class AnalysisFragment : Fragment() {
             Log.d(TAG, "nextScriptId 동일 → 처리 스킵")
             return
         }
+
+        // 인식 시점에 보냈던 문장만큼만 버퍼 앞에서 제거
+        if (recognizedSpeechBuffer.length >= lastSentBufferLength) {
+            recognizedSpeechBuffer.delete(0, lastSentBufferLength)
+            lastSentBufferLength = 0 // 초기화
+            Log.d(TAG, "이전 문장 버퍼 정리 완료. 남은 버퍼: '${recognizedSpeechBuffer.toString()}'")
+        } else {
+            // 만약 뭔가 꼬여서 버퍼가 더 짧아졌다면 그냥 전체 초기화
+            recognizedSpeechBuffer.setLength(0)
+            lastSentBufferLength = 0
+        }
+
         lastNextScriptId = nextIdInt
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
