@@ -440,7 +440,7 @@ class AnalysisFragment : Fragment() {
 
         // 최소 길이 검사 (정규화된 텍스트 기준)
         // 2글자 미만은 대부분 잡음 ("아", "음" 등)
-        if (normalizedText.length < 20) {
+        if (normalizedText.length < 15) {
             //Log.v(TAG, "FILTERED: 짧은 길이 ($normalizedText)")
             return false
         }
