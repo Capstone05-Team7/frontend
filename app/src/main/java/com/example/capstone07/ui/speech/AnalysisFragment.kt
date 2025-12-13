@@ -110,7 +110,7 @@ class AnalysisFragment : Fragment() {
 
     // --- 현재 상태 저장용 ---
     private var speakingSentence: String = ""   // 현재 말하고 있는 문장
-    private var speakingId: String = ""     // 발화 중인 문장 id
+    private var speakingId: String = "1"     // 발화 중인 문장 id
 
     // --- '2-스레드 아키텍처'를 위한 변수 ---
     private val audioBuffer = LinkedBlockingQueue<ByteArray>()  // [스레드 A]가 녹음한 오디오 청크를 담아두는 '공용 바구니'
@@ -654,8 +654,40 @@ class AnalysisFragment : Fragment() {
             binding.textViewResult.text = ""
             binding.textViewResult.text = "가장 유사한 문장:\n${response.mostSimilarText}"
 
-            speakingSentence = response.mostSimilarText
-            speakingId = response.mostSimilarId
+            if (response.mostSimilarId  == "1"){
+                speakingSentence = response.mostSimilarText
+            }
+
+
+            if (speakingId == null || speakingId == "") {
+                Log.d(TAG, "발화 중인 문장 업데이트: 초기")
+
+                speakingSentence = response.mostSimilarText
+                speakingId = response.mostSimilarId
+                return
+            }
+
+            if (response.mostSimilarId == speakingId){
+                Log.d(TAG, "발화 중인 문장 동일")
+                return
+            }
+
+            val speakingIdforNumVer = speakingId.toInt()
+
+            if (response.mostSimilarId.toInt() !in speakingIdforNumVer - 7 .. speakingIdforNumVer + 8) {
+
+                Log.d(TAG, "너무 동떨어진 문장; 불충분한 정보로 인한 miss 처리")
+            }
+
+            if (response.mostSimilarId != speakingId &&
+                response.mostSimilarId.toInt() in speakingIdforNumVer - 7 .. speakingIdforNumVer + 8) {
+
+                Log.d(TAG, "발화 중인 문장 업데이트")
+
+                speakingSentence = response.mostSimilarText
+                speakingId = response.mostSimilarId
+            }
+
             binding.textViewNowspeaking.text = "현재 발화 중인 문장: \n ${speakingSentence}"
 
         }

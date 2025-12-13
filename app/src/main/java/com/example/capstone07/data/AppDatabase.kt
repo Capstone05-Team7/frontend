@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.capstone07.model.ImageCacheEntity
 
-@Database(entities = [ImageCacheEntity::class], version = 1)
+@Database(entities = [ImageCacheEntity::class], version = 2)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun imageCacheDao(): ImageCacheDao
@@ -17,10 +17,11 @@ abstract class AppDatabase : RoomDatabase() {
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "app_database"
-                ).build()
+                                context.applicationContext,
+                                AppDatabase::class.java,
+                                "app_database"
+                            ).fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }
