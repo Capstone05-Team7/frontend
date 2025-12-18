@@ -216,6 +216,7 @@ class AnalysisFragment : Fragment() {
             withContext(Dispatchers.Main) {
                 binding.progressLoading.visibility = View.VISIBLE
                 binding.imageViewMic.visibility = View.INVISIBLE
+                binding.textViewStatus.visibility = View.INVISIBLE
                 binding.imageViewMic.isEnabled = false
             }
 
@@ -257,6 +258,7 @@ class AnalysisFragment : Fragment() {
             withContext(Dispatchers.Main) {
                 binding.progressLoading.visibility = View.GONE
                 binding.imageViewMic.visibility = View.VISIBLE
+                binding.textViewStatus.visibility = View.VISIBLE
                 binding.imageViewMic.isEnabled = true
 
                 // 웹소켓 클라이언트 초기화 및 연결
