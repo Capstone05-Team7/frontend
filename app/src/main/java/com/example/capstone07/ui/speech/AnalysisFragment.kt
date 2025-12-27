@@ -11,7 +11,6 @@ import android.media.MediaRecorder
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -35,13 +34,13 @@ import com.example.capstone07.remote.SimilarityResponse
 import com.google.android.gms.wearable.Asset
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
-import com.google.android.gms.tasks.Tasks
 import com.google.api.gax.core.FixedCredentialsProvider
 import com.google.api.gax.rpc.ApiStreamObserver
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.protobuf.ByteString
 import com.google.cloud.speech.v1.RecognitionConfig
 import com.google.cloud.speech.v1.SpeechClient
+import com.google.cloud.speech.v1.SpeechContext
 import com.google.cloud.speech.v1.SpeechSettings
 import com.google.cloud.speech.v1.StreamingRecognitionConfig
 import com.google.cloud.speech.v1.StreamingRecognizeRequest
@@ -52,11 +51,8 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.ByteBuffer
-import java.security.MessageDigest
 import java.util.concurrent.LinkedBlockingQueue
 
 
@@ -99,20 +95,11 @@ class AnalysisFragment : Fragment() {
 
     private val TAG = "AnalysisFragment"
 
-    // UI 스레드에서 동작할 핸들러
-    private val hintHandler = Handler(Looper.getMainLooper())
-
-    private val recognizedSpeechBuffer = StringBuilder()
-
-    // ---버퍼 관리를 위한 상수---
-    private val MAX_WORD_COUNT = 20 // 최대 허용 단어 수
-    private val TRIM_WORD_COUNT = 10 // 삭제할 단어 수 (MAX_WORD_COUNT의 절반)
-
     // --- 현재 상태 저장용 ---
     private var speakingSentence: String = ""   // 현재 말하고 있는 문장
-    private var speakingId: String = ""     // 발화 중인 문장 id
+    private var speakingId: String = "1"     // 발화 중인 문장 id
 
-    // --- '2-스레드 아키텍처'를 위한 변수 ---
+    // --- 멀티 스레드 변수 ---
     private val audioBuffer = LinkedBlockingQueue<ByteArray>()  // [스레드 A]가 녹음한 오디오 청크를 담아두는 '공용 바구니'
     private var audioRecordingThread: Thread? = null    // [스레드 A] AudioRecord에서 마이크 입력을 읽어 audioBuffer에 넣는 역할
     private var sttTransmissionThread: Thread? = null   // [스레드 B] audioBuffer에서 오디오를 꺼내 Google STT 서버로 전송하는 역할
@@ -126,23 +113,15 @@ class AnalysisFragment : Fragment() {
                 val currentTime = System.currentTimeMillis()
                 // (주시작 직후 3초간은 무시 (연결 초기화 시간 고려)
                 if (currentTime - lastSttResponseTime > 3000) {
-                    /*Log.w(TAG, "[감시자] 3초간 응답 없음. 전송 스레드 재시작")
 
-                    // 전송 스레드만 리셋 (녹음은 계속됨 -> 끊김 없음)
-                    startSttTransmission()
-
-                    // 시간 갱신
-                    lastSttResponseTime = System.currentTimeMillis()*/
-
-                    // ⭐️ [핵심 수정] 큐에 데이터가 쌓여있는데도(>0) 응답이 없으면 진짜 문제!
-                    // 큐가 비어있다면(=사용자가 말을 안 해서 보낼 게 없으면) 응답 없는 건 당연함.
+                    // 큐에 데이터가 쌓여있는데도(>0) 응답이 없으면 문제
+                    // 큐가 비어있다면(=사용자가 말을 안 해서 보낼 게 없으면) 응답 없는 건 문제 없음
                     if (audioBuffer.isNotEmpty()) {
                         Log.w(TAG, "[감시자] 큐에 데이터가 ${audioBuffer.size}개나 있는데 응답 없음. 재시작")
                         startSttTransmission()
                         lastSttResponseTime = System.currentTimeMillis()
                     } else {
                         // 큐가 비어있으면 그냥 시간만 갱신해서 살려둠 (False Alarm 방지)
-                        // Log.v(TAG, "[감시자] 응답 없지만 큐도 비어있음(침묵 중). 패스.")
                         lastSttResponseTime = System.currentTimeMillis()
                     }
                 }
@@ -152,11 +131,13 @@ class AnalysisFragment : Fragment() {
         }
     }
 
-    // 문장 조각을 모으는 변수
-    private val accumulatedScript = StringBuilder()
 
-    // ⭐️ [성능 측정용] 백엔드로 요청을 보낸 시각 저장
+    // [성능 측정용] 백엔드로 요청을 보낸 시각 저장
     private var backendRequestTime = 0L
+
+    // 오프셋 커서 방식을 위한 변수
+    private var completedPrevText: String = "" // 이미 처리가 끝나서 다음 장으로 넘어간 문장들을 저장
+    private var currentRawTranscript: String = "" // STT가 보내준 가장 최신의 '전체' 텍스트
 
     /**
      * ---------메소드들-----------
@@ -211,11 +192,9 @@ class AnalysisFragment : Fragment() {
             withContext(Dispatchers.Main) {
                 binding.progressLoading.visibility = View.VISIBLE
                 binding.imageViewMic.visibility = View.INVISIBLE
+                binding.textViewStatus.visibility = View.INVISIBLE
                 binding.imageViewMic.isEnabled = false
             }
-
-            // imageCacheDao.clearAll()         // DB 초기화
-            // clearAllCachedImages(appContext) // 시작하기 전 이미 있는 캐시 이미지들 삭제
 
             val jobs = scripts.map { script ->
                 launch {
@@ -224,14 +203,14 @@ class AnalysisFragment : Fragment() {
                     Log.d("Image", "이미지 경로:, path=$imageUrl")
 
                     if (imageCacheDao.exists(PRESENTATION_ID.toInt(), sentenceId)) {
-                        Log.w("ImageCache", "⏭️ 이미 DB에 존재해서 스킵됨: id=$sentenceId")
+                        Log.w("ImageCache", "이미 DB에 존재해서 스킵됨: id=$sentenceId")
                         return@launch
                     }
 
                     try {
                         val bitmap = downloadBitmap(imageUrl)
                         val path = saveBitmap(appContext, bitmap, PRESENTATION_ID.toInt(), sentenceId)
-                        Log.d("ImageCache", "📂 파일 저장 완료: id=$sentenceId, path=$path")
+                        Log.d("ImageCache", "파일 저장 완료: id=$sentenceId, path=$path")
 
                         imageCacheDao.insert(
                             ImageCacheEntity(
@@ -252,6 +231,7 @@ class AnalysisFragment : Fragment() {
             withContext(Dispatchers.Main) {
                 binding.progressLoading.visibility = View.GONE
                 binding.imageViewMic.visibility = View.VISIBLE
+                binding.textViewStatus.visibility = View.VISIBLE
                 binding.imageViewMic.isEnabled = true
 
                 // 웹소켓 클라이언트 초기화 및 연결
@@ -294,7 +274,7 @@ class AnalysisFragment : Fragment() {
         // 중단 버튼 클릭 처리
         binding.imageViewStop.setOnClickListener {
             stopStreamingAudio()    // STT 중단
-            stompClient.disconnect() // 웹소켓 연결 해제
+            //stompClient.disconnect() // 웹소켓 연결 해제
         }
     }
 
@@ -369,6 +349,24 @@ class AnalysisFragment : Fragment() {
 
             // UI 스레드로 전환하여 작업
             activity?.runOnUiThread {
+                // 최신 원본 텍스트 갱신 (onProgressReceived에서 사용하기 위함)
+                currentRawTranscript = transcript
+
+
+
+                // [핵심 로직] 전체 텍스트 - 완료된 텍스트 = 지금 말하고 있는 문장
+                // 예: "안녕(완료) 반가워(현재)" - "안녕" = "반가워"
+                val currentSpeakingSentence = if (transcript.startsWith(completedPrevText)) {
+                    transcript.substring(completedPrevText.length).trim()
+                } else {
+                    // STT 보정으로 인해 앞부분이 미세하게 바뀌었을 경우를 대비한 안전 장치
+                    transcript.replace(completedPrevText, "").trim()
+                }
+
+                Log.d(TAG, "[전체] $transcript")
+                Log.d(TAG, "[전송] $currentSpeakingSentence")
+
+
                 if (result.isFinal) {
                     // ⭐️ [측정 1] STT 완료
                     Log.d("!!--성능 개선--!!", "1. [STT 완료] 텍스트 변환됨: $transcript")
@@ -376,26 +374,21 @@ class AnalysisFragment : Fragment() {
                     // --- '최종' 결과 (onResults와 유사) ---
                     Log.d(TAG, "[최종] $transcript")
 
-                    // 버퍼 누적 및 진행률 계산
-                    recognizedSpeechBuffer.append(transcript).append(" ")
-                    //trimSpeechBufferIfNeeded()  // 버퍼 관리
-                    val textToSend = recognizedSpeechBuffer.toString().trim()
-
-                    // ⭐️ [측정 2] 백엔드 요청 시작
+                    // [측정 2] 백엔드 요청 시작
                     backendRequestTime = System.currentTimeMillis()
                     Log.d("!!--성능 개선--!!", "2. [백엔드 요청] STT 텍스트 전송 시작")
 
-                    stompClient.sendSttTextForProgress(speakingId, speakingSentence, textToSend)
+                    stompClient.sendSttTextForProgress(speakingId, speakingSentence, currentSpeakingSentence)
 
                 } else {
                     // --- '중간' 결과 (onPartialResults와 유사) ---
                     Log.d(TAG, "[중간] $transcript")
 
                     // 잡음 필터링 해서 STT 전송
-                    if (isMeaningfulSpeech(transcript)) {
-                        // ⭐️ [측정 1] STT 완료
+                    if (isMeaningfulSpeech(currentSpeakingSentence)) {
+                        // [측정 1] STT 완료
                         Log.d("!!--성능 개선--!!", "1. [STT 완료] 텍스트 변환됨: $transcript")
-                        stompClient.sendSttText(transcript) // STT 전송
+                        stompClient.sendSttText(currentSpeakingSentence) // STT 전송
 
                         // --- '최종' 결과 (onResults와 유사) ---
                         Log.d(TAG, "[최종] $transcript")
@@ -403,7 +396,7 @@ class AnalysisFragment : Fragment() {
                         backendRequestTime = System.currentTimeMillis()
                         Log.d("!!--성능 개선--!!", "2. [백엔드 요청] STT 텍스트 전송 시작")
 
-                        stompClient.sendSttTextForProgress(speakingId, speakingSentence, transcript) // 진행률 계산
+                        stompClient.sendSttTextForProgress(speakingId, speakingSentence, currentSpeakingSentence) // 진행률 계산
                     }
                 }
             }
@@ -440,8 +433,7 @@ class AnalysisFragment : Fragment() {
 
         // 최소 길이 검사 (정규화된 텍스트 기준)
         // 2글자 미만은 대부분 잡음 ("아", "음" 등)
-        if (normalizedText.length < 20) {
-            //Log.v(TAG, "FILTERED: 짧은 길이 ($normalizedText)")
+        if (normalizedText.length < 5) {
             return false
         }
 
@@ -559,11 +551,36 @@ class AnalysisFragment : Fragment() {
         try {
             requestObserver = speechClient?.streamingRecognizeCallable()?.bidiStreamingCall(responseObserver)
 
+            // [동적 키워드 생성] scripts 리스트에서 텍스트 추출
+            val scriptKeywords = ArrayList<String>()
+
+            // scripts가 null이 아닐 때만 실행
+            scripts?.forEach { script ->
+                // 문장 통째로 넣기 (Google STT는 문장 단위 힌트도 잘 인식함)
+                script.sentenceFragmentContent?.let { text ->
+                    // 너무 긴 문장은 잘릴 수 있으므로 100자 이내로 자르거나 그대로 사용
+                    if(text.isNotEmpty()) scriptKeywords.add(text)
+                }
+            }
+
+            // SpeechContext 생성 (자동으로 추출한 키워드 주입)
+            val speechContextBuilder = SpeechContext.newBuilder()
+
+            // 리스트에 있는 모든 문장/단어를 힌트로 등록
+            for (phrase in scriptKeywords) {
+                speechContextBuilder.addPhrases(phrase)
+            }
+
+            // 가중치 설정 (높을수록 대본에 있는 말로 인식하려고 노력함)
+            speechContextBuilder.setBoost(15.0f)
+
+
             val recognitionConfig = RecognitionConfig.newBuilder()
                 .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
                 .setSampleRateHertz(sampleRate)
                 .setLanguageCode("ko-KR")
                 .setEnableAutomaticPunctuation(true)
+                .addSpeechContexts(speechContextBuilder.build())
                 .build()
             val streamingConfig = StreamingRecognitionConfig.newBuilder()
                 .setConfig(recognitionConfig)
@@ -638,8 +655,9 @@ class AnalysisFragment : Fragment() {
         // 큐 비우기
         audioBuffer.clear()
 
-        // 텍스트 버퍼 비우기
-        recognizedSpeechBuffer.setLength(0)
+        // 오프셋 변수들도 초기화해야 재시작 시 꼬이지 않습니다.
+        completedPrevText = ""
+        currentRawTranscript = ""
 
         // 종료 메시지
         binding.imageViewStop.visibility = View.GONE
@@ -654,8 +672,40 @@ class AnalysisFragment : Fragment() {
             binding.textViewResult.text = ""
             binding.textViewResult.text = "가장 유사한 문장:\n${response.mostSimilarText}"
 
-            speakingSentence = response.mostSimilarText
-            speakingId = response.mostSimilarId
+            if (response.mostSimilarId  == "1"){
+                speakingSentence = response.mostSimilarText
+            }
+
+
+            if (speakingId == null || speakingId == "") {
+                Log.d(TAG, "발화 중인 문장 업데이트: 초기")
+
+                speakingSentence = response.mostSimilarText
+                speakingId = response.mostSimilarId
+                return
+            }
+
+            if (response.mostSimilarId == speakingId){
+                Log.d(TAG, "발화 중인 문장 동일")
+                return
+            }
+
+            val speakingIdforNumVer = speakingId.toInt()
+
+            if (response.mostSimilarId.toInt() !in speakingIdforNumVer - 7 .. speakingIdforNumVer + 8) {
+
+                Log.d(TAG, "너무 동떨어진 문장; 불충분한 정보로 인한 miss 처리")
+            }
+
+            if (response.mostSimilarId != speakingId &&
+                response.mostSimilarId.toInt() in speakingIdforNumVer - 7 .. speakingIdforNumVer + 8) {
+
+                Log.d(TAG, "발화 중인 문장 업데이트")
+
+                speakingSentence = response.mostSimilarText
+                speakingId = response.mostSimilarId
+            }
+
             binding.textViewNowspeaking.text = "현재 발화 중인 문장: \n ${speakingSentence}"
 
         }
@@ -666,7 +716,7 @@ class AnalysisFragment : Fragment() {
     // nextScriptId에 대한 정보가 오면 워치로 이미지 보냄.
     private fun onProgressReceived(progress: ProgressResponse) {
 
-        // ⭐️ [측정 3] 백엔드 응답 도착 (RTT)
+        // [측정 3] 백엔드 응답 도착 (RTT)
         val responseTime = System.currentTimeMillis()
         if (backendRequestTime > 0 && progress.nextScriptId != null) {
             Log.d("!!--성능 개선--!!", "3. [백엔드 응답] 소요시간(RTT): ${responseTime - backendRequestTime}ms (모델 API 포함)")
@@ -686,11 +736,17 @@ class AnalysisFragment : Fragment() {
             Log.d(TAG, "nextScriptId 동일 → 처리 스킵")
             return
         }
+
+        // 진행률이 바뀌었으므로, 현재까지 인식된 텍스트를 '완료된 텍스트'로 확정합니다.
+        // 이렇게 하면 다음 onNext 호출 때 이 부분만큼 잘려나갑니다.
+        completedPrevText = currentRawTranscript
+        Log.d(TAG, "문장 전환! 오프셋 업데이트됨: '$completedPrevText'")
+
         lastNextScriptId = nextIdInt
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
 
-            // ⭐️ [측정 4, 5 시작] 디스크 로드 시작
+            // [측정 4, 5 시작] 디스크 로드 시작
             val startDiskLoad = System.currentTimeMillis()
 
             // 1. DB에서 ID로 이미지 정보 조회
@@ -703,7 +759,7 @@ class AnalysisFragment : Fragment() {
 
             val filePath = entity.filePath
 
-            // 2. 파일 → Bitmap 복원
+            // 파일 → Bitmap 복원
             val bitmap = BitmapFactory.decodeFile(filePath)
 
             if (bitmap == null) {
@@ -716,29 +772,29 @@ class AnalysisFragment : Fragment() {
                 return@launch
             }
 
-            // ⭐️ [측정 4, 5 중간] 순수 디스크 읽기 시간
+            // [측정 4, 5 중간] 순수 디스크 읽기 시간
             val midDiskLoad = System.currentTimeMillis()
 
-            // 3. Bitmap → ByteArray 변환
+            // Bitmap → ByteArray 변환
             val byteStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteStream)
             val imageBytes = byteStream.toByteArray()
 
-            // ⭐️ [측정 4, 5 완료] 디스크 로드 끝
+            // [측정 4, 5 완료] 디스크 로드 끝
             val endDiskLoad = System.currentTimeMillis()
             // 로그 분리: 디스크 읽기 vs 이미지 변환(압축)
             Log.d("!!--성능 개선--!!", "4, 5. [이미지 로딩] 읽기: ${midDiskLoad - startDiskLoad}ms")
             Log.d("!!--성능 개선--!!", "6. [이미지 변환]: ${endDiskLoad - midDiskLoad}ms")
-            // 4. 메인 스레드에서 워치로 전송
+            // 메인 스레드에서 워치로 전송
             withContext(Dispatchers.Main) {
                 sendImageToWatch(imageBytes)
-                Log.d(TAG, "✅ 워치로 이미지 전송 완료: id=$nextIdInt")
+                Log.d(TAG, "워치로 이미지 전송 완료: id=$nextIdInt")
             }
         }
     }
 
     fun sendImageToWatch(imageBytes: ByteArray) {
-        // ⭐️ [측정 5 시작] 워치 전송 시작
+        // [측정 5 시작] 워치 전송 시작
         val startSend = System.currentTimeMillis()
 
         val asset = Asset.createFromBytes(imageBytes)
@@ -748,7 +804,7 @@ class AnalysisFragment : Fragment() {
             dataMap.putLong("time", System.currentTimeMillis()) // 변경 트리거
         }.asPutDataRequest()
 
-        // ⭐️ [측정 5 완료] 리스너 달아서 측정
+        // [측정 5 완료] 리스너 달아서 측정
         Wearable.getDataClient(requireContext()).putDataItem(request)
             .addOnSuccessListener {
                 val endSend = System.currentTimeMillis()
@@ -769,13 +825,13 @@ class AnalysisFragment : Fragment() {
             )
 
             if (entity == null) {
-                Log.e(TAG, "❌ 1번 이미지 없음 (발표 시작 시)")
+                Log.e(TAG, "1번 이미지 없음 (발표 시작 시)")
                 return@launch
             }
 
             val bitmap = BitmapFactory.decodeFile(entity.filePath)
             if (bitmap == null) {
-                Log.e(TAG, "❌ 1번 이미지 Bitmap 디코딩 실패")
+                Log.e(TAG, "1번 이미지 Bitmap 디코딩 실패")
                 return@launch
             }
 
@@ -785,7 +841,7 @@ class AnalysisFragment : Fragment() {
 
             withContext(Dispatchers.Main) {
                 sendImageToWatch(imageBytes)
-                Log.d(TAG, "✅ 발표 시작 → 1번 이미지 워치 전송 완료")
+                Log.d(TAG, "발표 시작 → 1번 이미지 워치 전송 완료")
             }
         }
     }
@@ -804,7 +860,7 @@ class AnalysisFragment : Fragment() {
         inputStream.close()
 
         if (bitmap == null) {
-            throw IllegalStateException("❌ Bitmap decode 실패: $url")
+            throw IllegalStateException("Bitmap decode 실패: $url")
         }
 
         return bitmap
@@ -817,27 +873,17 @@ class AnalysisFragment : Fragment() {
         FileOutputStream(file).use { fos ->
             val success = bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fos)
             if (!success) {
-                throw IllegalStateException("❌ Bitmap compress 실패: id=$sentenceId")
+                throw IllegalStateException("Bitmap compress 실패: id=$sentenceId")
             }
         }
 
         if (!file.exists() || file.length() == 0L) {
-            throw IllegalStateException("❌ 파일 저장 실패: id=$sentenceId")
+            throw IllegalStateException("파일 저장 실패: id=$sentenceId")
         }
 
-        Log.d("ImageCache", "✅ 실제 파일 저장 성공: ${file.absolutePath} (${file.length()} bytes)")
+        Log.d("ImageCache", "실제 파일 저장 성공: ${file.absolutePath} (${file.length()} bytes)")
         return file.absolutePath
     }
-
-    fun clearAllCachedImages(context: Context) {
-        context.filesDir.listFiles()?.forEach { file ->
-            if (file.name.startsWith("img_")) {
-                file.delete()
-            }
-        }
-    }
-
-
 
     override fun onDestroyView() {
         super.onDestroyView()
@@ -858,21 +904,5 @@ class AnalysisFragment : Fragment() {
         speechClient = null
 
         _binding = null
-    }
-
-    private fun trimSpeechBufferIfNeeded() {
-        // 버퍼를 공백을 기준으로 단어 리스트로 분리
-        val words = recognizedSpeechBuffer.toString().trim().split("\\s+".toRegex())
-
-        if (words.size > MAX_WORD_COUNT) {
-            Log.d(TAG, "버퍼 단어 수 초과 (${words.size}개). 앞부분 ${TRIM_WORD_COUNT}개 삭제.")
-
-            // 최신 내용 (words.size - TRIM_WORD_COUNT)개만 유지
-            val newWords = words.subList(TRIM_WORD_COUNT, words.size)
-
-            // 버퍼를 새로운 단어 리스트로 재구성
-            recognizedSpeechBuffer.clear()
-            recognizedSpeechBuffer.append(newWords.joinToString(" "))
-        }
     }
 }
