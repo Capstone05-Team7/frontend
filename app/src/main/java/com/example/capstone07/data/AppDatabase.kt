@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.capstone07.model.ImageCacheEntity
 
-@Database(entities = [ImageCacheEntity::class], version = 4 )
+@Database(entities = [ImageCacheEntity::class], version = 9 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun imageCacheDao(): ImageCacheDao
